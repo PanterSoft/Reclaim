@@ -8,14 +8,16 @@ cask "reclaim" do
   desc "Free up disk space with APFS clones and transparent compression"
   homepage "https://github.com/PanterSoft/Reclaim"
 
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "Reclaim.app"
   binary "#{appdir}/Reclaim.app/Contents/Resources/reclaim"
 
   # ponytail: release builds are ad-hoc signed; drop this once signed with a Developer ID.
-  postflight do
-    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/Reclaim.app"]
+  app_path = "#{appdir}/Reclaim.app"
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", app_path],
+                          writable_paths: ["Reclaim.app"], writable_base: :appdir
   end
 
   uninstall quit: "io.github.reclaim.Reclaim"
