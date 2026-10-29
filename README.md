@@ -13,6 +13,18 @@ Every file keeps its name, location, contents and metadata. Nothing is trashed, 
 - **Transparent compression**: files are stored compressed, like macOS system files. Apps read them as before.
 - **Storage analysis**: see what uses space by folder, file kind and size. Read-only.
 
+> [!WARNING]
+> Reclaim changes how files are stored on disk. It is provided **as is**, without warranty ([MIT](LICENSE)).
+> **Have a current backup** and try a small folder first.
+
+## Safety
+
+- **Copy, verify, swap.** Each result is built in a temp file, metadata copied, SHA-256 checked against the original, then swapped atomically. Any failure leaves the original untouched.
+- **Conservative scope.** Only regular, owned, fully downloaded, single-link files. Skips `~/Library`, the Trash, system folders, VMs, app bundles and Photos/Music libraries by default.
+- **Reversible.** `reclaim decompress` or *Decompress Files…* in the app.
+
+Changed files get a new inode, so backups copy them once more. Clones only work within one APFS volume.
+
 ## Install
 
 ```bash
@@ -48,18 +60,6 @@ reclaim decompress ~/Projects          # undo compression
 ```
 
 Nothing changes without `--apply`.
-
-## Safety
-
-- **Copy, verify, swap.** Each result is built in a temp file, metadata copied, SHA-256 checked against the original, then swapped atomically. Any failure leaves the original untouched.
-- **Conservative scope.** Only regular, owned, fully downloaded, single-link files. Skips `~/Library`, the Trash, system folders, VMs, app bundles and Photos/Music libraries by default.
-- **Reversible.** `reclaim decompress` or *Decompress Files…* in the app.
-
-Changed files get a new inode, so backups copy them once more. Clones only work within one APFS volume.
-
-> [!WARNING]
-> Reclaim changes how files are stored on disk. It is provided **as is**, without warranty ([MIT](LICENSE)).
-> **Have a current backup** and try a small folder first.
 
 ## How it works
 
