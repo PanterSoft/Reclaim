@@ -6,10 +6,10 @@ final class ReclaimCoreTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("reclaim-tests-\(UUID().uuidString)")
-            .resolvingSymlinksInPath()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("reclaim-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        // The temporary folder lives behind the /var → /private/var symlink.
+        directory = FileWalker.canonical(temporary)
     }
 
     override func tearDownWithError() throws {
@@ -132,8 +132,8 @@ final class ReclaimCoreTests: XCTestCase {
         XCTAssertEqual(candidates.map(\.path), [file.path])
 
         let before = try XCTUnwrap(FileStat.of(file.path))
-        let report = TransparentCompression.compress(candidates)
-        XCTAssertEqual(report.succeeded, 1, "\(report.failures)")
+        // Call the single-file API directly so a skip reports its reason.
+        XCTAssertNoThrow(try TransparentCompression.compress(file.path, expected: before))
         let compressed = try XCTUnwrap(FileStat.of(file.path))
         XCTAssertTrue(compressed.isCompressed)
         XCTAssertLessThan(compressed.allocatedSize, before.allocatedSize)

@@ -6,7 +6,7 @@ public enum ReclaimError: LocalizedError, Sendable {
     case posix(operation: String, code: Int32, path: String)
     case changedSinceScan(String)
     case verificationFailed(String)
-    case notWorthCompressing(String)
+    case notWorthCompressing(String, reason: String)
     case notEligible(String)
     case cloningUnsupported(String)
     case insufficientSpace(String)
@@ -20,8 +20,8 @@ public enum ReclaimError: LocalizedError, Sendable {
             return "\(path) changed since it was scanned; left untouched."
         case let .verificationFailed(path):
             return "Verification failed for \(path); the original was left untouched."
-        case let .notWorthCompressing(path):
-            return "\(path) does not compress well enough; left untouched."
+        case let .notWorthCompressing(path, reason):
+            return "\(path) was left uncompressed: \(reason)."
         case let .notEligible(path):
             return "\(path) is not a file Reclaim may modify."
         case let .cloningUnsupported(path):
