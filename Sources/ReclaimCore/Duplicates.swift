@@ -175,7 +175,8 @@ public enum CloneDeduplicator {
                 if code == ENOTSUP || code == EXDEV { throw ReclaimError.cloningUnsupported(file.path) }
                 throw ReclaimError.posix(operation: "clonefile", code: code, path: file.path)
             }
-            try SafeReplace.copyMetadata(from: file.path, stat: file.stat, to: temporary, extendedAttributes: true)
+            try SafeReplace.copyExtendedAttributes(from: file.path, to: temporary)
+            try SafeReplace.copyAttributes(from: file.path, stat: file.stat, to: temporary, includingACL: true)
         }
     }
 }

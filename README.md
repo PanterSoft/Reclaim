@@ -97,8 +97,10 @@ cleanly between files.
   recognized via APFS's clone ID and private size (`getattrlist`) so they are not counted
   twice. Each duplicate is replaced with a `clonefile(2)` copy of the group's "keeper".
 - **Compression.** Candidates are sampled at three points and test-compressed to estimate
-  the gain; already-compressed formats (JPEG, MP4, ZIP, …) are skipped. Files are compressed
-  with Apple's `ditto --hfsCompression`; a result is kept only if it saves at least 10%.
+  the gain; already-compressed formats (JPEG, MP4, ZIP, …) are skipped. Reclaim writes the
+  same on-disk format macOS uses for its own compressed files: 64 KiB chunks compressed with
+  LZFSE in the file's resource fork, a `com.apple.decmpfs` header and the `UF_COMPRESSED`
+  flag. A result is kept only if it saves at least 10%, and files over 256 MB are skipped.
 - All file-system logic lives in `Sources/ReclaimCore`, shared by the app and the CLI.
 
 ## Contributing
