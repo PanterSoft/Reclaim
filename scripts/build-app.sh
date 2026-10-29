@@ -2,18 +2,20 @@
 # Builds dist/Reclaim.app (with the `reclaim` command-line tool inside) and a zip of it.
 #   VERSION=1.2.0   version string written into Info.plist (a leading "v" is dropped)
 #   UNIVERSAL=1     build for both Apple silicon and Intel (requires Xcode, not just the CLT)
+#   CONFIGURATION=debug   quick unoptimized build for development (no zip)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${VERSION:-0.1.0}"
 VERSION="${VERSION#v}"
+CONFIGURATION="${CONFIGURATION:-release}"
 ARCH_FLAGS=()
 if [[ "${UNIVERSAL:-0}" == "1" ]]; then
   ARCH_FLAGS=(--arch arm64 --arch x86_64)
 fi
 
-swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}
-BIN_DIR="$(swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)"
+swift build -c "$CONFIGURATION" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}
+BIN_DIR="$(swift build -c "$CONFIGURATION" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)"
 
 APP="dist/Reclaim.app"
 rm -rf "$APP"
@@ -26,5 +28,9 @@ sed "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
 codesign --force --sign "${CODESIGN_IDENTITY:--}" "$APP/Contents/Resources/reclaim"
 codesign --force --sign "${CODESIGN_IDENTITY:--}" "$APP"
 
-(cd dist && rm -f "Reclaim-$VERSION.zip" && ditto -c -k --keepParent Reclaim.app "Reclaim-$VERSION.zip")
-echo "Built $APP and dist/Reclaim-$VERSION.zip"
+if [[ "$CONFIGURATION" == "release" ]]; then
+  (cd dist && rm -f "Reclaim-$VERSION.zip" && ditto -c -k --keepParent Reclaim.app "Reclaim-$VERSION.zip")
+  echo "Built $APP and dist/Reclaim-$VERSION.zip"
+else
+  echo "Built $APP ($CONFIGURATION)"
+fi

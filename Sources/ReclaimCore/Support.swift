@@ -10,7 +10,6 @@ public enum ReclaimError: LocalizedError, Sendable {
     case notEligible(String)
     case cloningUnsupported(String)
     case insufficientSpace(String)
-    case toolFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -28,8 +27,6 @@ public enum ReclaimError: LocalizedError, Sendable {
             return "The volume containing \(path) does not support APFS clones."
         case let .insufficientSpace(path):
             return "Not enough free space to safely rewrite \(path)."
-        case let .toolFailed(message):
-            return message
         }
     }
 }

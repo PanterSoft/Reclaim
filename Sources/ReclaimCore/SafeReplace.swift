@@ -58,23 +58,30 @@ enum SafeReplace {
         committed = true
     }
 
-    /// Copies the original's metadata onto the replacement. When `extendedAttributes` is true
-    /// the replacement's own xattrs and ACL are discarded and the original's copied over
-    /// (needed for clones, which inherit the metadata of the file they were cloned from).
-    static func copyMetadata(from original: String, stat: FileStat, to replacement: String, extendedAttributes: Bool) throws {
+    /// Replaces the replacement's extended attributes and ACL with an empty set, then copies
+    /// the original's visible extended attributes (Finder tags, comments, quarantine, …) onto it.
+    /// The attributes macOS uses to store compressed data are hidden and never copied.
+    static func copyExtendedAttributes(from original: String, to replacement: String) throws {
+        // Make sure we can write attributes even if the replacement is read-only.
+        guard chmod(replacement, 0o600) == 0 else {
+            throw ReclaimError.posix(operation: "chmod", code: errno, path: original)
+        }
+        if let empty = acl_init(0) {
+            _ = acl_set_file(replacement, ACL_TYPE_EXTENDED, empty)
+            acl_free(UnsafeMutableRawPointer(empty))
+        }
+        for name in try ExtendedAttributes.names(replacement) {
+            try ExtendedAttributes.remove(name, from: replacement)
+        }
+        for name in try ExtendedAttributes.names(original) {
+            try ExtendedAttributes.set(name, ExtendedAttributes.value(name, of: original), on: replacement)
+        }
+    }
+
+    /// Gives the replacement the original's flags, permissions, dates and ACL.
+    static func copyAttributes(from original: String, stat: FileStat, to replacement: String, includingACL: Bool) throws {
         func check(_ result: Int32, _ operation: String) throws {
             if result != 0 { throw ReclaimError.posix(operation: operation, code: errno, path: original) }
-        }
-
-        if extendedAttributes {
-            // Make sure we can write attributes even if the clone source was read-only.
-            try check(chmod(replacement, 0o600), "chmod")
-            if let empty = acl_init(0) {
-                _ = acl_set_file(replacement, ACL_TYPE_EXTENDED, empty)
-                acl_free(UnsafeMutableRawPointer(empty))
-            }
-            try removeExtendedAttributes(replacement)
-            try check(copyfile(original, replacement, nil, copyfile_flags_t(1 << 2)), "copy extended attributes") // COPYFILE_XATTR
         }
 
         if let current = FileStat.of(replacement) {
@@ -91,42 +98,52 @@ enum SafeReplace {
         var times = [stat.accessTime.cValue, stat.modificationTime.cValue]
         try check(utimensat(AT_FDCWD, replacement, &times, AT_SYMLINK_NOFOLLOW), "set modification date")
 
-        if extendedAttributes {
+        if includingACL {
             try check(copyfile(original, replacement, nil, copyfile_flags_t(1 << 0)), "copy ACL") // COPYFILE_ACL
-        }
-    }
-
-    private static func removeExtendedAttributes(_ path: String) throws {
-        let noFollow: Int32 = 0x0001 // XATTR_NOFOLLOW
-        let length = listxattr(path, nil, 0, noFollow)
-        guard length > 0 else { return }
-        var names = [CChar](repeating: 0, count: length)
-        let read = listxattr(path, &names, length, noFollow)
-        guard read > 0 else { return }
-        for name in names.prefix(read).split(separator: 0) {
-            let cName = Array(name) + [0]
-            guard removexattr(path, cName, noFollow) == 0 else {
-                throw ReclaimError.posix(operation: "removexattr", code: errno, path: path)
-            }
         }
     }
 }
 
-/// Runs /usr/bin/ditto, Apple's copy tool that knows how to write transparently compressed files.
-enum Ditto {
-    static func copy(_ arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = arguments
-        let errors = Pipe()
-        process.standardError = errors
-        process.standardOutput = FileHandle.nullDevice
-        try process.run()
-        let output = errors.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let message = String(data: output, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            throw ReclaimError.toolFailed("ditto failed: \(message)")
+/// Thin wrappers around the BSD extended attribute calls. Symlinks are never followed.
+enum ExtendedAttributes {
+    static let resourceFork = "com.apple.ResourceFork"
+    static let compressionHeader = "com.apple.decmpfs"
+    private static let noFollow: Int32 = 0x0001 // XATTR_NOFOLLOW
+
+    /// Names of the visible attributes. macOS hides the compression attributes of a
+    /// compressed file from this list.
+    static func names(_ path: String) throws -> [String] {
+        let length = listxattr(path, nil, 0, noFollow)
+        guard length >= 0 else { throw ReclaimError.posix(operation: "listxattr", code: errno, path: path) }
+        guard length > 0 else { return [] }
+        var buffer = [CChar](repeating: 0, count: length)
+        let read = listxattr(path, &buffer, length, noFollow)
+        guard read >= 0 else { throw ReclaimError.posix(operation: "listxattr", code: errno, path: path) }
+        return buffer.prefix(read).split(separator: 0).map { String(cString: Array($0) + [0]) }
+    }
+
+    static func exists(_ name: String, on path: String) -> Bool {
+        getxattr(path, name, nil, 0, 0, noFollow) >= 0
+    }
+
+    static func value(_ name: String, of path: String) throws -> [UInt8] {
+        let length = getxattr(path, name, nil, 0, 0, noFollow)
+        guard length >= 0 else { throw ReclaimError.posix(operation: "getxattr \(name)", code: errno, path: path) }
+        var buffer = [UInt8](repeating: 0, count: length)
+        let read = getxattr(path, name, &buffer, length, 0, noFollow)
+        guard read >= 0 else { throw ReclaimError.posix(operation: "getxattr \(name)", code: errno, path: path) }
+        return Array(buffer.prefix(read))
+    }
+
+    static func set(_ name: String, _ value: [UInt8], on path: String) throws {
+        guard setxattr(path, name, value, value.count, 0, noFollow) == 0 else {
+            throw ReclaimError.posix(operation: "setxattr \(name)", code: errno, path: path)
+        }
+    }
+
+    static func remove(_ name: String, from path: String) throws {
+        guard removexattr(path, name, noFollow) == 0 else {
+            throw ReclaimError.posix(operation: "removexattr \(name)", code: errno, path: path)
         }
     }
 }

@@ -17,14 +17,16 @@ Thanks for helping! Reclaim's one hard rule: **it must never lose or alter user 
 Requirements: macOS 13 or later and Xcode 15+ (or the matching Command Line Tools).
 
 ```bash
-swift build            # build everything
-swift test             # run the test suite (uses a temporary folder on your APFS disk)
-swift run reclaim analyze ~/Downloads
-swift run ReclaimApp   # launch the app without bundling it
-make app               # build dist/Reclaim.app
+make test      # run the test suite (uses a temporary folder on your APFS disk)
+make run       # launch the app straight from source
+make dev       # build a debug Reclaim.app bundle and open it
+make cli ARGS="analyze ~/Downloads"
+make install   # build a release and install it into /Applications and /usr/local/bin
 ```
 
-You can also open `Package.swift` in Xcode.
+Run `make` on its own to list every target.
+
+You can also open the package in Xcode with `make xcode`.
 
 ## Layout
 
