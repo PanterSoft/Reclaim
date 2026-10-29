@@ -1,12 +1,13 @@
 import AppKit
 import Foundation
+import IOKit.ps
 import ReclaimCore
 import ServiceManagement
 
 struct LogEntry: Identifiable, Hashable {
-    enum Level { case info, success, warning, error }
+    enum Level: String { case info, success, warning, error }
     let id = UUID()
-    let date = Date()
+    var date = Date()
     let level: Level
     let message: String
 }
@@ -35,6 +36,12 @@ final class AppModel: ObservableObject {
         }
     }
     @Published private(set) var lastBackgroundRun = UserDefaults.standard.object(forKey: "lastBackgroundRun") as? Date
+    @Published private(set) var lastBackgroundResult = UserDefaults.standard.string(forKey: "lastBackgroundResult")
+    @Published var checksForUpdates = UserDefaults.standard.object(forKey: "checksForUpdates") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(checksForUpdates, forKey: "checksForUpdates") }
+    }
+    /// A newer release on GitHub, if there is one.
+    @Published private(set) var availableUpdate: (version: String, page: URL)?
 
     @Published private(set) var volume: VolumeInfo?
     @Published private(set) var report: StorageReport?
@@ -45,7 +52,12 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var busyTitle: String?
     @Published private(set) var progress: ProgressUpdate?
-    @Published private(set) var log: [LogEntry] = []
+    @Published private(set) var log: [LogEntry] = AppModel.loadLog()
+
+    /// The Activity log, kept across launches so background runs can be reviewed later.
+    // ponytail: grows without bound (a line per action, a few KB a month); trim it if that ever matters.
+    static let logFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Logs/Reclaim/activity.log")
 
     private var cancelCurrent: (() -> Void)?
     private var scheduler: Timer?
@@ -60,9 +72,13 @@ final class AppModel: ObservableObject {
         refreshVolume()
         // ponytail: hourly check for a daily run; FSEvents if new files should be picked up sooner.
         scheduler = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.compressNewFilesIfDue() }
+            Task { @MainActor in
+                self?.compressNewFilesIfDue()
+                await self?.checkForUpdatesIfDue()
+            }
         }
         compressNewFilesIfDue()
+        Task { await checkForUpdatesIfDue() }
         // Removing the menu bar icon (⌘-drag) writes the setting directly; follow it.
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
@@ -169,8 +185,13 @@ final class AppModel: ObservableObject {
 
     // MARK: Background
 
+    /// Runs the daily compression, but only on power and outside Low Power Mode; the hourly
+    /// check retries until both hold. The work runs at background priority, which macOS also
+    /// throttles for disk access.
     func compressNewFilesIfDue() {
-        guard runInBackground, (lastBackgroundRun ?? .distantPast) < Date().addingTimeInterval(-24 * 60 * 60) else { return }
+        guard runInBackground, (lastBackgroundRun ?? .distantPast) < Date().addingTimeInterval(-24 * 60 * 60),
+              IOPSCopyExternalPowerAdapterDetails() != nil, !ProcessInfo.processInfo.isLowPowerModeEnabled
+        else { return }
         compressNewFiles()
     }
 
@@ -186,7 +207,8 @@ final class AppModel: ObservableObject {
             self.lastBackgroundRun = Date()
             UserDefaults.standard.set(self.lastBackgroundRun, forKey: "lastBackgroundRun")
             self.candidates = nil
-            self.recordOperation(report, verb: "Compressed")
+            self.lastBackgroundResult = self.recordOperation(report, verb: "Compressed")
+            UserDefaults.standard.set(self.lastBackgroundResult, forKey: "lastBackgroundResult")
         })
     }
 
@@ -202,6 +224,58 @@ final class AppModel: ObservableObject {
         } catch {
             record(.error, "Could not update the login item: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: Updates
+
+    private static let latestRelease = URL(string: "https://api.github.com/repos/PanterSoft/Reclaim/releases/latest")!
+
+    func checkForUpdatesIfDue() async {
+        let last = UserDefaults.standard.object(forKey: "lastUpdateCheck") as? Date ?? .distantPast
+        guard checksForUpdates, last < Date().addingTimeInterval(-24 * 60 * 60) else { return }
+        await checkForUpdates()
+    }
+
+    /// Asks GitHub for the latest release and compares it with this build's version.
+    /// `userInitiated` reports the outcome (including "up to date" and errors) in an alert.
+    func checkForUpdates(userInitiated: Bool = false) async {
+        struct Release: Decodable { let tag_name: String; let html_url: URL }
+        // `swift run` has no Info.plist and so no version to compare.
+        guard let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else { return }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: Self.latestRelease)
+            UserDefaults.standard.set(Date(), forKey: "lastUpdateCheck")
+            let release = (response as? HTTPURLResponse)?.statusCode == 200 ? try JSONDecoder().decode(Release.self, from: data) : nil
+            let latest = release.map { String($0.tag_name.drop { $0 == "v" }) }
+            if let release, let latest, latest.compare(current, options: .numeric) == .orderedDescending {
+                availableUpdate = (latest, release.html_url)
+                if userInitiated { offerUpdate() }
+            } else {
+                availableUpdate = nil
+                if userInitiated { alert("Reclaim is up to date", "You have version \(current), the latest release.") }
+            }
+        } catch {
+            if userInitiated { alert("Could not check for updates", error.localizedDescription) }
+        }
+    }
+
+    func offerUpdate() {
+        guard let update = availableUpdate else { return }
+        let alert = NSAlert()
+        alert.messageText = "Reclaim \(update.version) is available"
+        alert.informativeText = "Download it from GitHub, then replace Reclaim in Applications (or run `make install` from the repository)."
+        alert.addButton(withTitle: "Open Release Page")
+        alert.addButton(withTitle: "Later")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(update.page) }
+    }
+
+    private func alert(_ title: String, _ message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        NSApp.activate(ignoringOtherApps: true) // a menu bar-only app would show it behind other windows
+        alert.runModal()
     }
 
     func decompressFiles() {
@@ -270,14 +344,37 @@ final class AppModel: ObservableObject {
     }
 
     private func record(_ level: LogEntry.Level, _ message: String) {
-        log.insert(LogEntry(level: level, message: message), at: 0)
+        let entry = LogEntry(level: level, message: message)
+        log.insert(entry, at: 0)
+        let line = "\(entry.date.ISO8601Format())\t\(level.rawValue)\t\(message.replacingOccurrences(of: "\n", with: " "))\n"
+        try? FileManager.default.createDirectory(at: Self.logFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let handle = try? FileHandle(forWritingTo: Self.logFile) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(line.utf8))
+            try? handle.close()
+        } else {
+            try? Data(line.utf8).write(to: Self.logFile)
+        }
     }
 
-    private func recordOperation(_ report: OperationReport, verb: String) {
+    /// The most recent 500 entries of the log file, newest first.
+    private static func loadLog() -> [LogEntry] {
+        guard let text = try? String(contentsOf: logFile, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n").suffix(500).reversed().compactMap { line in
+            let fields = line.split(separator: "\t", maxSplits: 2).map(String.init)
+            guard fields.count == 3, let date = try? Date(fields[0], strategy: .iso8601),
+                  let level = LogEntry.Level(rawValue: fields[1]) else { return nil }
+            return LogEntry(date: date, level: level, message: fields[2])
+        }
+    }
+
+    @discardableResult
+    private func recordOperation(_ report: OperationReport, verb: String) -> String {
         var message = "\(verb) \(report.succeeded) file(s)"
         if report.bytesReclaimed > 0 { message += ", freeing about \(report.bytesReclaimed.formattedBytes)" }
         if report.skipped > 0 { message += "; \(report.skipped) skipped (would not shrink enough)" }
         record(report.failures.isEmpty ? .success : .warning, message + ".")
         for failure in report.failures { record(.error, failure.reason) }
+        return message + "."
     }
 }

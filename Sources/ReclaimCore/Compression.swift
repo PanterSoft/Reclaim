@@ -84,8 +84,9 @@ public enum TransparentCompression {
         return report
     }
 
-    /// Files above this size are skipped: their compressed form is assembled in memory.
-    public static let maximumFileSize: Int64 = 256 << 20
+    /// Files above this size are skipped.
+    // ponytail: resource fork offsets are UInt32, so 4 GiB is the hard ceiling; 2 GiB leaves margin.
+    public static let maximumFileSize: Int64 = 2 << 30
     /// macOS compresses files in independent 64 KiB chunks.
     static let chunkSize = 64 * 1024
 
@@ -105,21 +106,15 @@ public enum TransparentCompression {
         guard !ExtendedAttributes.exists(ExtendedAttributes.resourceFork, on: path) else {
             throw ReclaimError.notEligible(path)
         }
-        try SafeReplace.ensureUnchanged(path, matches: expected)
 
-        let encoded = try encode(path, size: expected.size)
-        guard Double(encoded.resourceFork.count) <= Double(expected.size) * 0.9 else {
-            let compressed = Int64(encoded.resourceFork.count).formattedBytes
-            throw ReclaimError.notWorthCompressing(path, reason: "it would only shrink from \(expected.size.formattedBytes) to \(compressed)")
-        }
-
+        var contentHash = ""
         var saved: Int64 = 0
-        try SafeReplace.replace(path, expected: expected, contentHash: encoded.contentHash, build: { temporary in
+        try SafeReplace.replace(path, expected: expected, contentHash: contentHash, build: { temporary in
             let descriptor = open(temporary, O_CREAT | O_EXCL | O_WRONLY, 0o600)
             guard descriptor >= 0 else { throw ReclaimError.posix(operation: "create", code: errno, path: path) }
             _ = close(descriptor)
             try SafeReplace.copyExtendedAttributes(from: path, to: temporary)
-            try ExtendedAttributes.set(ExtendedAttributes.resourceFork, encoded.resourceFork, on: temporary)
+            contentHash = try encode(path, size: expected.size, into: temporary)
             try ExtendedAttributes.set(ExtendedAttributes.compressionHeader, header(uncompressedSize: expected.size), on: temporary)
             guard chflags(temporary, FileFlags.compressed) == 0 else {
                 throw ReclaimError.posix(operation: "chflags", code: errno, path: path)
@@ -154,20 +149,31 @@ public enum TransparentCompression {
         return grown
     }
 
-    /// Reads the file once, returning its compressed resource fork and the SHA-256 of its contents.
+    /// Reads the file once, writing its compressed form into `temporary`'s resource fork chunk by
+    /// chunk (so memory stays flat for any file size), and returns the SHA-256 of its contents.
+    /// Gives up as soon as the result would not save at least 10%.
     ///
     /// Resource fork layout: a table of `chunks + 1` little-endian UInt32 offsets (from the start
     /// of the fork), followed by each chunk as a self-contained LZFSE stream.
-    static func encode(_ path: String, size: Int64) throws -> (resourceFork: [UInt8], contentHash: String) {
+    static func encode(_ path: String, size: Int64, into temporary: String) throws -> String {
         guard let handle = FileHandle(forReadingAtPath: path) else {
             throw ReclaimError.posix(operation: "open", code: errno, path: path)
         }
         defer { try? handle.close() }
+        let fork = open(temporary + "/..namedfork/rsrc", O_WRONLY | O_CREAT, 0o600)
+        guard fork >= 0 else { throw ReclaimError.posix(operation: "open resource fork", code: errno, path: path) }
+        defer { _ = close(fork) }
+        func write(_ buffer: UnsafeRawBufferPointer, at offset: Int) throws {
+            guard pwrite(fork, buffer.baseAddress, buffer.count, off_t(offset)) == buffer.count else {
+                throw ReclaimError.posix(operation: "write resource fork", code: errno, path: path)
+            }
+        }
 
         let chunkCount = Int((size + Int64(chunkSize) - 1) / Int64(chunkSize))
         let tableSize = (chunkCount + 1) * 4
-        var fork = [UInt8](repeating: 0, count: tableSize)
+        let limit = Double(size) * 0.9
         var offsets: [UInt32] = [UInt32(tableSize)]
+        var forkSize = tableSize
         var hasher = SHA256()
         var output = [UInt8](repeating: 0, count: chunkSize + 4096)
         var scratch = [UInt8](repeating: 0, count: compression_encode_scratch_buffer_size(COMPRESSION_LZFSE))
@@ -191,18 +197,17 @@ public enum TransparentCompression {
                 }
             }
             guard written > 0 else { throw ReclaimError.notWorthCompressing(path, reason: "the compressor failed") }
-            fork.append(contentsOf: output[0..<written])
-            offsets.append(UInt32(fork.count))
+            guard Double(forkSize + written) <= limit else {
+                throw ReclaimError.notWorthCompressing(path, reason: "it would shrink by less than 10%")
+            }
+            try output.withUnsafeBytes { try write(UnsafeRawBufferPointer(rebasing: $0[0..<written]), at: forkSize) }
+            forkSize += written
+            offsets.append(UInt32(forkSize))
         }
         guard total == size, offsets.count == chunkCount + 1 else { throw ReclaimError.changedSinceScan(path) }
 
-        for (index, offset) in offsets.enumerated() {
-            withUnsafeBytes(of: offset.littleEndian) { bytes in
-                fork.replaceSubrange(index * 4..<index * 4 + 4, with: bytes)
-            }
-        }
-        let hash = hasher.finalize().map { String(format: "%02x", $0) }.joined()
-        return (fork, hash)
+        try offsets.map(\.littleEndian).withUnsafeBytes { try write($0, at: 0) }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     /// The `com.apple.decmpfs` header: magic "cmpf", type 12 (LZFSE in the resource fork), size.

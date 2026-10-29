@@ -41,6 +41,19 @@ Things worth knowing:
   snapshots, which keep the old blocks until the snapshot expires.
 - Clones only work within the same APFS volume, and compression requires APFS or HFS+.
 
+## Disclaimer
+
+Reclaim changes how files are stored on disk. It has been built and tested with care, but it
+is provided **as is, without warranty of any kind**, as stated in the [MIT License](LICENSE).
+You use it at your own risk. The authors are not liable for data loss, corruption or any other
+damage that results from using it.
+
+**Have a current backup before you run Reclaim**, for example with Time Machine. Try it on a
+small folder first and check the results before running it on large or important data.
+
+Reclaim is not affiliated with or endorsed by Apple Inc. APFS, macOS and Time Machine are
+trademarks of Apple Inc.
+
 ## Install
 
 ### Download
@@ -83,7 +96,13 @@ Settings (⌘,) control minimum file sizes and whether app bundles are included.
 Reclaim then starts at login (menu bar only, no window) and, once a day, compresses files in
 your locations that have not changed for a day. It uses the same verify-then-swap path as a manual
 run. The menu bar icon shows free space and the last run, and has *Compress New Files Now*. macOS
-may ask you to allow Reclaim under **System Settings → General → Login Items**.
+may ask you to allow Reclaim under **System Settings → General → Login Items**. Scheduled runs
+wait until the Mac is on power and not in Low Power Mode, and run at background priority. Every
+action is logged to `~/Library/Logs/Reclaim/activity.log` (also shown under **Activity**).
+
+**Updates.** Once a day Reclaim asks GitHub for the latest release (turn this off in Settings).
+When a newer version exists, the menu bar icon and **Reclaim → Check for Updates…** link to its
+release page. Nothing is downloaded or installed automatically.
 
 ## Command line
 
@@ -109,7 +128,8 @@ cleanly between files.
   the gain; already-compressed formats (JPEG, MP4, ZIP, …) are skipped. Reclaim writes the
   same on-disk format macOS uses for its own compressed files: 64 KiB chunks compressed with
   LZFSE in the file's resource fork, a `com.apple.decmpfs` header and the `UF_COMPRESSED`
-  flag. A result is kept only if it saves at least 10%, and files over 256 MB are skipped.
+  flag. A result is kept only if it saves at least 10%, and files over 2 GB are skipped. The
+  compressed data is written to disk chunk by chunk, so memory use stays small for any file size.
 - All file-system logic lives in `Sources/ReclaimCore`, shared by the app and the CLI.
 
 ## Contributing

@@ -33,7 +33,7 @@ enum SafeReplace {
     static func replace(
         _ path: String,
         expected: FileStat,
-        contentHash: String,
+        contentHash: @autoclosure () throws -> String,
         build: (_ temporaryPath: String) throws -> Void,
         accept: (_ replacement: FileStat) throws -> Void = { _ in }
     ) throws {
@@ -48,7 +48,8 @@ enum SafeReplace {
             throw ReclaimError.verificationFailed(path)
         }
         try accept(replacement)
-        guard try ContentHash.sha256(ofFileAt: temporary) == contentHash else {
+        // Read after `build`, which may compute the original's hash while building.
+        guard try ContentHash.sha256(ofFileAt: temporary) == contentHash() else {
             throw ReclaimError.verificationFailed(path)
         }
         try ensureUnchanged(path, matches: expected)

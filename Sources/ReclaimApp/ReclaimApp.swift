@@ -75,7 +75,12 @@ struct ReclaimApp: App {
                 .environmentObject(model)
                 .frame(minWidth: 920, minHeight: 620)
         }
-        .commands { CommandGroup(replacing: .newItem) {} }
+        .commands {
+            CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { Task { await model.checkForUpdates(userInitiated: true) } }
+            }
+        }
 
         Settings {
             SettingsView()
@@ -102,7 +107,14 @@ struct MenuBarMenu: View {
         } else {
             Button("Compress New Files Now") { model.compressNewFiles() }
         }
+        if let update = model.availableUpdate {
+            Button("Update Available: \(update.version)…") { model.offerUpdate() }
+            Divider()
+        }
         Text("Last run: " + (model.lastBackgroundRun?.formatted(.relative(presentation: .named)) ?? "never"))
+        if let result = model.lastBackgroundResult { Text(result) }
+        Button("Show Activity Log") { NSWorkspace.shared.open(AppModel.logFile) }
+        Button("Check for Updates…") { Task { await model.checkForUpdates(userInitiated: true) } }
         Divider()
         Button("Open Reclaim") {
             NSApp.setActivationPolicy(.regular)
@@ -211,6 +223,9 @@ struct SettingsView: View {
                 Text("Reclaim starts at login and, once a day, compresses files in your locations that changed more than a day ago. Every file is verified before it is replaced.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            Section("Updates") {
+                Toggle("Check GitHub for new versions daily", isOn: $model.checksForUpdates)
             }
             Section("Safety") {
                 Toggle("Include application bundles (.app)", isOn: $model.includeAppBundles)
