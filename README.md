@@ -14,8 +14,10 @@ Every file keeps its name, location, contents and metadata. Nothing is trashed, 
 - **Storage analysis**: see what uses space by folder, file kind and size. Read-only.
 
 > [!WARNING]
-> Reclaim changes how files are stored on disk. It is provided **as is**, without warranty ([MIT](LICENSE)).
-> **Have a current backup** and try a small folder first.
+> **Use at your own risk.** Reclaim changes how files are stored on disk. It is provided **as is**,
+> without warranty of any kind. To the maximum extent permitted by law, the authors and contributors
+> are **not liable for any data loss**, corruption or other damage arising from its use ([MIT License](LICENSE)).
+> **Have a current backup** before running it and try a small folder first.
 
 ## Safety
 
