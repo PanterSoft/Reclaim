@@ -1,6 +1,10 @@
-# Reclaim
+<p align="center">
+  <img src="Resources/icon.png" width="128" alt="Reclaim icon">
+</p>
 
-**Free up disk space on your Mac without deleting anything.**
+<h1 align="center">Reclaim</h1>
+
+<p align="center"><b>Free up disk space on your Mac without deleting anything.</b></p>
 
 A free, open-source macOS app and CLI that recovers space with two built-in APFS features.
 Every file keeps its name, location, contents and metadata. Nothing is trashed, uploaded or removed.
@@ -11,7 +15,12 @@ Every file keeps its name, location, contents and metadata. Nothing is trashed, 
 
 ## Install
 
-Download `Reclaim-x.y.z.zip` from [Releases](../../releases), unzip and move `Reclaim.app` to **Applications**.
+```bash
+brew tap pantersoft/reclaim https://github.com/PanterSoft/Reclaim
+brew install --cask reclaim   # app + `reclaim` CLI
+```
+
+Or download `Reclaim-x.y.z.zip` from [Releases](../../releases), unzip and move `Reclaim.app` to **Applications**.
 Builds are ad-hoc signed: right-click → **Open** the first time.
 
 Or build from source (macOS 13+, Xcode 15+):

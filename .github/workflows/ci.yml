@@ -35,3 +35,13 @@ jobs:
         with:
           files: dist/*.zip
           generate_release_notes: true
+      - name: Update Homebrew cask
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          SHA="$(shasum -a 256 "dist/Reclaim-$V.zip" | cut -d' ' -f1)"
+          git fetch origin main && git checkout main
+          sed -i '' -e "s/^  version \".*\"/  version \"$V\"/" -e "s/^  sha256 \".*\"/  sha256 \"$SHA\"/" Casks/reclaim.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Update Homebrew cask to $V" && git push origin main

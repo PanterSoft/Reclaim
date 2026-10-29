@@ -1,0 +1,27 @@
+# version and sha256 are updated by CI on every v* tag (.github/workflows/ci.yml).
+cask "reclaim" do
+  version "0.1.0"
+  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+
+  url "https://github.com/PanterSoft/Reclaim/releases/download/v#{version}/Reclaim-#{version}.zip"
+  name "Reclaim"
+  desc "Free up disk space with APFS clones and transparent compression"
+  homepage "https://github.com/PanterSoft/Reclaim"
+
+  depends_on macos: ">= :ventura"
+
+  app "Reclaim.app"
+  binary "#{appdir}/Reclaim.app/Contents/Resources/reclaim"
+
+  # ponytail: release builds are ad-hoc signed; drop this once signed with a Developer ID.
+  postflight do
+    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/Reclaim.app"]
+  end
+
+  uninstall quit: "io.github.reclaim.Reclaim"
+
+  zap trash: [
+    "~/Library/Logs/Reclaim",
+    "~/Library/Preferences/io.github.reclaim.Reclaim.plist",
+  ]
+end

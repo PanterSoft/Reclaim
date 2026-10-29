@@ -36,4 +36,5 @@ You can also open the package in Xcode with `make xcode`.
 | `Sources/ReclaimApp` | The SwiftUI app |
 | `Sources/reclaim` | The command-line tool |
 | `Tests/ReclaimCoreTests` | Tests that exercise the real file system |
+| `Tests/ReclaimAppTests` | App model and UI rendering tests; `RECLAIM_SNAPSHOTS=<folder> make test` saves a PNG of every screen |
 | `scripts/build-app.sh` | Assembles and signs `Reclaim.app` |
