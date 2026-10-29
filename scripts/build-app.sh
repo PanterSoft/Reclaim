@@ -23,6 +23,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Library/
 cp "$BIN_DIR/ReclaimApp" "$APP/Contents/MacOS/Reclaim"
 cp "$BIN_DIR/reclaim" "$APP/Contents/Resources/reclaim"
 sed "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/"  # regenerate with scripts/make-icon.swift
 # Login agent for "Run in the menu bar" (registered by the app via SMAppService).
 cp Resources/io.github.reclaim.Reclaim.background.plist "$APP/Contents/Library/LaunchAgents/"
 

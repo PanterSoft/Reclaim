@@ -5,6 +5,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var runInBackground: Bool { UserDefaults.standard.bool(forKey: AppModel.runInBackgroundKey) }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Dock icon only while a window is open: drop it once the last one closes in background mode.
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard self?.runInBackground == true, !NSApp.windows.contains(where: { $0.canBecomeMain && $0.isVisible }) else { return }
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
         // One instance only: the login agent also starts one right when it is registered.
         let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
             .filter { $0 != .current }
@@ -21,13 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         requestFullDiskAccessIfNeeded()
-        // Drop the Dock icon again once the last window closes while running in the background.
-        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] _ in
-            DispatchQueue.main.async {
-                guard self?.runInBackground == true, !NSApp.windows.contains(where: { $0.canBecomeMain && $0.isVisible }) else { return }
-                NSApp.setActivationPolicy(.accessory)
-            }
-        }
     }
 
     /// macOS has no API to request Full Disk Access, so explain it and open the right pane.

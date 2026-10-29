@@ -8,6 +8,8 @@
 	<string>Reclaim</string>
 	<key>CFBundleExecutable</key>
 	<string>Reclaim</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.reclaim.Reclaim</string>
 	<key>CFBundlePackageType</key>
