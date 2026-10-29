@@ -1,4 +1,4 @@
-# version and sha256 are updated by CI on every v* tag (.github/workflows/ci.yml).
+# version and sha256 are updated by `make publish`.
 cask "reclaim" do
   version "0.1.0"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
