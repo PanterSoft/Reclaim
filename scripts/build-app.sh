@@ -24,7 +24,12 @@ cp "$BIN_DIR/ReclaimApp" "$APP/Contents/MacOS/Reclaim"
 cp "$BIN_DIR/reclaim" "$APP/Contents/Resources/reclaim"
 sed "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
 
-# Ad-hoc signature: enough to run locally. Use a Developer ID to distribute without warnings.
+# Sign with the first local certificate if there is one: macOS ties a Full Disk Access grant for an
+# ad-hoc signed app to that exact build, so every rebuild would lose it. Falls back to ad-hoc (CI).
+# Use a Developer ID to distribute without warnings.
+if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
+  CODESIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk 'NR==1 && /\)/ {print $2}')"
+fi
 codesign --force --sign "${CODESIGN_IDENTITY:--}" "$APP/Contents/Resources/reclaim"
 codesign --force --sign "${CODESIGN_IDENTITY:--}" "$APP"
 

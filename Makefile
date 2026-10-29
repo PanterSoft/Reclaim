@@ -56,6 +56,7 @@ install: app ## Install Reclaim.app into APP_DIR and the `reclaim` command into 
 	$(BIN_SUDO) mkdir -p "$(BIN_DIR)"
 	$(BIN_SUDO) ln -sf "$(APP_DIR)/$(APP_NAME).app/Contents/Resources/reclaim" "$(BIN_DIR)/reclaim"
 	@echo "Installed $(APP_DIR)/$(APP_NAME).app and $(BIN_DIR)/reclaim"
+	open "$(APP_DIR)/$(APP_NAME).app"
 
 uninstall: ## Remove the installed app and command
 	@pkill -x $(APP_NAME) 2>/dev/null || true

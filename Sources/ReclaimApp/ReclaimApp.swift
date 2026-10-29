@@ -6,6 +6,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Also makes `swift run ReclaimApp` behave like a normal app.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        requestFullDiskAccessIfNeeded()
+    }
+
+    /// macOS has no API to request Full Disk Access, so explain it and open the right pane.
+    private func requestFullDiskAccessIfNeeded() {
+        let skipKey = "skipFullDiskAccessPrompt"
+        // Only the installed bundle, not `swift run` (that binary gets the terminal's access).
+        guard Bundle.main.bundleIdentifier != nil, !UserDefaults.standard.bool(forKey: skipKey) else { return }
+        // ponytail: the TCC database is only readable with Full Disk Access; the common probe for it.
+        let probe = NSHomeDirectory() + "/Library/Application Support/com.apple.TCC/TCC.db"
+        guard FileHandle(forReadingAtPath: probe) == nil else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Allow Full Disk Access"
+        alert.informativeText = "Reclaim needs Full Disk Access to scan all your files without asking for each folder. In System Settings, turn on Reclaim under Full Disk Access, then reopen Reclaim."
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Not Now")
+        alert.showsSuppressionButton = true
+        let response = alert.runModal()
+        if alert.suppressionButton?.state == .on { UserDefaults.standard.set(true, forKey: skipKey) }
+        if response == .alertFirstButtonReturn,
+           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

@@ -18,6 +18,8 @@ public struct ScanOptions: Sendable {
     public static let managedLibraryExtensions: Set<String> = [
         "photoslibrary", "photolibrary", "migratedphotolibrary", "aplibrary", "musiclibrary",
         "tvlibrary", "imovielibrary", "fcpbundle", "logicx", "band", "lrlibrary",
+        // Virtual machines: a running VM keeps its disk open, and a swapped file would lose its writes.
+        "pvm", "vmwarevm", "utm",
     ]
 
     /// Defaults used before modifying anything: skips ~/Library (app data, iCloud Drive,
@@ -30,6 +32,7 @@ public struct ScanOptions: Sendable {
             excludedPaths: [
                 home + "/Library", home + "/.Trash",
                 "/System", "/Library", "/private", "/usr", "/bin", "/sbin", "/cores", "/dev",
+                "/Applications", "/opt", "/Volumes",
             ],
             excludedPackageExtensions: packages,
             minimumFileSize: minimumFileSize
@@ -49,6 +52,9 @@ public enum FileWalker {
                 try visit(rootPath, rootStat)
                 continue
             }
+            // The system and data volumes are joined by firmlinks (/Users lives on the data volume).
+            let bootDevices = Set(["/", "/System/Volumes/Data"].compactMap { FileStat.of($0)?.device })
+            let devices = bootDevices.contains(rootStat.device) ? bootDevices : [rootStat.device]
             // An explicitly chosen folder wins over the exclusions that contain it.
             let excluded = options.excludedPaths.filter { !(rootPath == $0 || rootPath.hasPrefix($0 + "/")) }
             guard let enumerator = FileManager.default.enumerator(
@@ -61,7 +67,9 @@ public enum FileWalker {
                 let path = url.path
                 guard let st = FileStat.of(path) else { continue }
                 if st.isDirectory {
-                    if excluded.contains(path)
+                    // Stay on the root's volume (network shares, device mounts can block), and don't
+                    // list cloud-only folders: that makes iCloud/Drive/Nextcloud download the listing.
+                    if !devices.contains(st.device) || st.isDataless || excluded.contains(path)
                         || options.excludedPackageExtensions.contains(url.pathExtension.lowercased()) {
                         enumerator.skipDescendants()
                     }

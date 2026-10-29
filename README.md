@@ -27,7 +27,8 @@ Reclaim is designed so that a bug or a crash cannot cost you data:
 - **Conservative by default.** Reclaim only touches regular files that you own, that have a
   single hard link, are fully downloaded (iCloud placeholders are skipped), and are not locked
   or protected by System Integrity Protection. It skips `~/Library` (app data, iCloud Drive,
-  cloud-storage folders), the Trash, system folders, app bundles and app-managed libraries
+  cloud-storage folders), the Trash, system folders (including `/Applications`, `/opt` and
+  `/Volumes`), virtual machines (Parallels, VMware Fusion, UTM), app bundles and app-managed libraries
   such as Photos, Music, iMovie and Final Cut Pro, unless you add them as a location yourself.
 - **Reversible compression.** `Decompress Files…` in the app (or `reclaim decompress`)
   stores files uncompressed again.
@@ -62,9 +63,11 @@ make install   # builds Reclaim.app, copies it to /Applications, links `reclaim`
 
 ### Permissions
 
-macOS asks for permission the first time Reclaim reads Desktop, Documents or Downloads. To
-scan everything without prompts, add Reclaim in **System Settings → Privacy & Security →
-Full Disk Access**.
+On first launch Reclaim checks for Full Disk Access and, if it is missing, offers to open
+**System Settings → Privacy & Security → Full Disk Access**, where you turn Reclaim on (macOS
+does not let apps grant this themselves). `make install` launches the app so this happens right
+after installing. Without it, macOS asks the first time Reclaim reads Desktop, Documents or
+Downloads.
 
 ## Using the app
 
