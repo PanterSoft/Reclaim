@@ -149,6 +149,22 @@ public enum TransparentCompression {
         return grown
     }
 
+    /// Decompresses every compressed file under `roots` (files or folders). `bytesReclaimed` is
+    /// negative: the extra space the files now use.
+    public static func decompress(_ roots: [URL]) throws -> OperationReport {
+        var report = OperationReport()
+        try FileWalker.walk(roots, options: ScanOptions()) { path, st in
+            guard st.isCompressed else { return }
+            do {
+                report.bytesReclaimed -= try decompress(path)
+                report.succeeded += 1
+            } catch {
+                report.fail(path, error)
+            }
+        }
+        return report
+    }
+
     /// Reads the file once, writing its compressed form into `temporary`'s resource fork chunk by
     /// chunk (so memory stays flat for any file size), and returns the SHA-256 of its contents.
     /// Gives up as soon as the result would not save at least 10%.

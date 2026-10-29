@@ -14,5 +14,6 @@ let package = Package(
         .executableTarget(name: "reclaim", dependencies: ["ReclaimCore"]),
         .executableTarget(name: "ReclaimApp", dependencies: ["ReclaimCore"]),
         .testTarget(name: "ReclaimCoreTests", dependencies: ["ReclaimCore"]),
+        .testTarget(name: "ReclaimAppTests", dependencies: ["ReclaimApp", "ReclaimCore"]),
     ]
 )

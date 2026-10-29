@@ -2,139 +2,65 @@
 
 **Free up disk space on your Mac without deleting anything.**
 
-Reclaim is a free, open-source macOS app (and command-line tool) that analyzes your storage
-and recovers space using two features built into Apple's file system. Every file keeps its
-name, location, contents, dates, tags and permissions. Nothing is moved to the Trash,
-uploaded or removed.
+A free, open-source macOS app and CLI that recovers space with two built-in APFS features.
+Every file keeps its name, location, contents and metadata. Nothing is trashed, uploaded or removed.
 
-| Technique | What happens | Typical wins |
-| --- | --- | --- |
-| **Duplicate cloning** | Identical files are turned into [APFS clones](https://developer.apple.com/documentation/foundation/file_system/about_apple_file_system). Each copy remains a normal, independent file, but the copies share the same blocks on disk. If you later edit one, APFS copies only the changed blocks; the others are unaffected. | Downloads saved twice, copied project folders, duplicated photo/video exports, installers, datasets |
-| **Transparent compression** | Files that compress well are stored compressed by the file system, the same way macOS stores its own system files. Every app reads them exactly as before; macOS decompresses on the fly. | Text, logs, source code, CSVs/JSON, uncompressed images and audio, many app bundles |
-| **Storage analysis** | Shows what is using space: by folder, by kind of file, and the largest files. Read-only. | Helps you decide what to clean up yourself |
-
-## Safety
-
-Reclaim is designed so that a bug or a crash cannot cost you data:
-
-- **Scanning is read-only.** Nothing changes until you review the results and confirm.
-- **Copy, verify, swap.** A file is never edited in place. Reclaim builds the clone or the
-  compressed copy in a hidden temporary file next to the original, copies the original's
-  permissions, flags, dates, extended attributes (Finder tags, comments, quarantine info) and
-  ACL, checks that its **SHA-256 matches the original's content**, makes sure the original
-  has not changed since it was scanned, and only then atomically swaps it in. If any step
-  fails, the original is left untouched.
-- **Conservative by default.** Reclaim only touches regular files that you own, that have a
-  single hard link, are fully downloaded (iCloud placeholders are skipped), and are not locked
-  or protected by System Integrity Protection. It skips `~/Library` (app data, iCloud Drive,
-  cloud-storage folders), the Trash, system folders (including `/Applications`, `/opt` and
-  `/Volumes`), virtual machines (Parallels, VMware Fusion, UTM), app bundles and app-managed libraries
-  such as Photos, Music, iMovie and Final Cut Pro, unless you add them as a location yourself.
-- **Reversible compression.** `Decompress Files…` in the app (or `reclaim decompress`)
-  stores files uncompressed again.
-
-Things worth knowing:
-
-- Cloned and compressed files get a new inode. Backup tools (including Time Machine) will
-  back them up again once. Their contents are identical.
-- Free space reported by Finder can lag for a while, especially with Time Machine local
-  snapshots, which keep the old blocks until the snapshot expires.
-- Clones only work within the same APFS volume, and compression requires APFS or HFS+.
-
-## Disclaimer
-
-Reclaim changes how files are stored on disk. It has been built and tested with care, but it
-is provided **as is, without warranty of any kind**, as stated in the [MIT License](LICENSE).
-You use it at your own risk. The authors are not liable for data loss, corruption or any other
-damage that results from using it.
-
-**Have a current backup before you run Reclaim**, for example with Time Machine. Try it on a
-small folder first and check the results before running it on large or important data.
-
-Reclaim is not affiliated with or endorsed by Apple Inc. APFS, macOS and Time Machine are
-trademarks of Apple Inc.
+- **Duplicate cloning**: identical files become [APFS clones](https://developer.apple.com/documentation/foundation/file_system/about_apple_file_system) that share blocks on disk but stay independent.
+- **Transparent compression**: files are stored compressed, like macOS system files. Apps read them as before.
+- **Storage analysis**: see what uses space by folder, file kind and size. Read-only.
 
 ## Install
 
-### Download
+Download `Reclaim-x.y.z.zip` from [Releases](../../releases), unzip and move `Reclaim.app` to **Applications**.
+Builds are ad-hoc signed: right-click → **Open** the first time.
 
-Grab `Reclaim-x.y.z.zip` from the [Releases](../../releases) page, unzip it and drag
-`Reclaim.app` to **Applications**. Release builds are ad-hoc signed, so the first time,
-right-click the app and choose **Open** (or run `xattr -dr com.apple.quarantine /Applications/Reclaim.app`).
-
-### Build from source
-
-Requires macOS 13 Ventura or later and Xcode 15+ (or its Command Line Tools).
+Or build from source (macOS 13+, Xcode 15+):
 
 ```bash
-git clone <this repository> Reclaim
-cd Reclaim
-make install   # builds Reclaim.app, copies it to /Applications, links `reclaim` into /usr/local/bin
+git clone https://github.com/PanterSoft/Reclaim.git && cd Reclaim
+make install   # app → /Applications, `reclaim` → /usr/local/bin
 ```
 
-`make app` builds `dist/Reclaim.app` without installing it.
+Grant **Full Disk Access** when asked (System Settings → Privacy & Security).
 
-### Permissions
+## Usage
 
-On first launch Reclaim checks for Full Disk Access and, if it is missing, offers to open
-**System Settings → Privacy & Security → Full Disk Access**, where you turn Reclaim on (macOS
-does not let apps grant this themselves). `make install` launches the app so this happens right
-after installing. Without it, macOS asks the first time Reclaim reads Desktop, Documents or
-Downloads.
+Pick folders in **Overview**, then review **Storage**, **Duplicates** and **Compression**.
+Every action is logged under **Activity** and in `~/Library/Logs/Reclaim/activity.log`.
 
-## Using the app
-
-1. **Overview**: check your disk and choose the folders to scan (your home folder by default).
-2. **Storage**: see what is taking space.
-3. **Duplicates**: find identical files, review the groups, then **Convert to Clones**.
-4. **Compression**: find files that shrink well, review, then **Compress**.
-5. **Activity**: a log of everything Reclaim did.
-
-Settings (⌘,) control minimum file sizes and whether app bundles are included.
-
-**Background mode.** Turn on *Run in the menu bar and compress new files daily* in Settings.
-Reclaim then starts at login (menu bar only, no window) and, once a day, compresses files in
-your locations that have not changed for a day. It uses the same verify-then-swap path as a manual
-run. The menu bar icon shows free space and the last run, and has *Compress New Files Now*. macOS
-may ask you to allow Reclaim under **System Settings → General → Login Items**. Scheduled runs
-wait until the Mac is on power and not in Low Power Mode, and run at background priority. Every
-action is logged to `~/Library/Logs/Reclaim/activity.log` (also shown under **Activity**).
-
-**Updates.** Once a day Reclaim asks GitHub for the latest release (turn this off in Settings).
-When a newer version exists, the menu bar icon and **Reclaim → Check for Updates…** link to its
-release page. Nothing is downloaded or installed automatically.
-
-## Command line
+Optional **background mode** (Settings) runs from the menu bar and compresses unchanged files once a day, on power only.
 
 ```bash
-reclaim analyze ~                          # what is using space
-reclaim duplicates ~/Documents ~/Downloads # dry run: list duplicate groups
-reclaim duplicates --apply ~/Documents     # convert them to clones
-reclaim compress --min-size 1M ~/Projects  # dry run: list compressible files
+reclaim analyze ~                      # what is using space
+reclaim duplicates ~/Documents         # dry run
+reclaim duplicates --apply ~/Documents # convert to clones
 reclaim compress --apply ~/Projects
-reclaim decompress ~/Projects              # undo compression
+reclaim decompress ~/Projects          # undo compression
 ```
 
-`duplicates` and `compress` never change anything without `--apply`. Ctrl-C cancels
-cleanly between files.
+Nothing changes without `--apply`.
+
+## Safety
+
+- **Copy, verify, swap.** Each result is built in a temp file, metadata copied, SHA-256 checked against the original, then swapped atomically. Any failure leaves the original untouched.
+- **Conservative scope.** Only regular, owned, fully downloaded, single-link files. Skips `~/Library`, the Trash, system folders, VMs, app bundles and Photos/Music libraries by default.
+- **Reversible.** `reclaim decompress` or *Decompress Files…* in the app.
+
+Changed files get a new inode, so backups copy them once more. Clones only work within one APFS volume.
+
+> [!WARNING]
+> Reclaim changes how files are stored on disk. It is provided **as is**, without warranty ([MIT](LICENSE)).
+> **Have a current backup** and try a small folder first.
 
 ## How it works
 
-- **Duplicates.** Files are grouped by volume and size, then by a SHA-256 of their first
-  64 KiB, then by a SHA-256 of their full contents. Files that already share storage are
-  recognized via APFS's clone ID and private size (`getattrlist`) so they are not counted
-  twice. Each duplicate is replaced with a `clonefile(2)` copy of the group's "keeper".
-- **Compression.** Candidates are sampled at three points and test-compressed to estimate
-  the gain; already-compressed formats (JPEG, MP4, ZIP, …) are skipped. Reclaim writes the
-  same on-disk format macOS uses for its own compressed files: 64 KiB chunks compressed with
-  LZFSE in the file's resource fork, a `com.apple.decmpfs` header and the `UF_COMPRESSED`
-  flag. A result is kept only if it saves at least 10%, and files over 2 GB are skipped. The
-  compressed data is written to disk chunk by chunk, so memory use stays small for any file size.
-- All file-system logic lives in `Sources/ReclaimCore`, shared by the app and the CLI.
+- **Duplicates**: grouped by size, then partial and full SHA-256, then replaced via `clonefile(2)`. Existing clones are detected and not counted twice.
+- **Compression**: LZFSE in 64 KiB chunks, stored in the resource fork with a `decmpfs` header, the same format macOS uses. Kept only if it saves ≥10%.
+- Core logic lives in `Sources/ReclaimCore`, shared by app and CLI.
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Not affiliated with Apple Inc.
 
 ## License
 

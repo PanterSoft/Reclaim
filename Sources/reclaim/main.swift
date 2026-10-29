@@ -20,51 +20,20 @@ Without --apply, `duplicates` and `compress` only report what they would do.
 PATH defaults to your home folder. SIZE accepts K, M and G suffixes (e.g. 512K, 10M).
 """
 
-struct Invocation: Sendable {
-    var command = ""
-    var apply = false
-    var minimumSize: Int64?
-    var includeApps = false
-    var paths: [String] = []
-
-    var roots: [URL] {
-        paths.isEmpty ? [FileManager.default.homeDirectoryForCurrentUser] : paths.map { URL(fileURLWithPath: $0) }
-    }
-}
-
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("error: \(message)\n\n\(usage)\n".utf8))
     exit(2)
 }
 
-func parseSize(_ text: String) -> Int64? {
-    let multipliers: [Character: Int64] = ["K": 1 << 10, "M": 1 << 20, "G": 1 << 30]
-    let upper = text.uppercased()
-    if let last = upper.last, let multiplier = multipliers[last] {
-        return Double(upper.dropLast()).map { Int64($0 * Double(multiplier)) }
-    }
-    return Int64(upper)
-}
-
 func parse(_ arguments: [String]) -> Invocation {
-    var invocation = Invocation()
-    var iterator = arguments.makeIterator()
-    guard let command = iterator.next() else { print(usage); exit(0) }
-    invocation.command = command
-    while let argument = iterator.next() {
-        switch argument {
-        case "--apply": invocation.apply = true
-        case "--include-apps": invocation.includeApps = true
-        case "--min-size":
-            guard let value = iterator.next(), let size = parseSize(value) else { fail("--min-size needs a size like 1M") }
-            invocation.minimumSize = size
-        case "-h", "--help": print(usage); exit(0)
-        default:
-            if argument.hasPrefix("-") { fail("unknown option \(argument)") }
-            invocation.paths.append(argument)
-        }
+    do {
+        guard let invocation = try Invocation.parse(arguments) else { print(usage); exit(0) }
+        return invocation
+    } catch let error as Invocation.UsageError {
+        fail(error.message)
+    } catch {
+        fail(error.localizedDescription)
     }
-    return invocation
 }
 
 // MARK: - Output
@@ -157,18 +126,9 @@ func run(_ invocation: Invocation) throws {
 
     case "decompress":
         guard !invocation.paths.isEmpty else { fail("decompress needs at least one path") }
-        var count = 0
-        var grown: Int64 = 0
-        try FileWalker.walk(roots, options: ScanOptions()) { path, st in
-            guard st.isCompressed else { return }
-            do {
-                grown += try TransparentCompression.decompress(path)
-                count += 1
-            } catch {
-                print("  • \(error.localizedDescription)")
-            }
-        }
-        print("Decompressed \(count) file(s); they now use \(grown.formattedBytes) more space.")
+        let report = try TransparentCompression.decompress(invocation.roots)
+        for failure in report.failures { print("  • \(failure.reason)") }
+        print("Decompressed \(report.succeeded) file(s); they now use \((-report.bytesReclaimed).formattedBytes) more space.")
 
     default:
         fail("unknown command \(invocation.command)")

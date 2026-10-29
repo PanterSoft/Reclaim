@@ -113,7 +113,7 @@ struct MenuBarMenu: View {
         }
         Text("Last run: " + (model.lastBackgroundRun?.formatted(.relative(presentation: .named)) ?? "never"))
         if let result = model.lastBackgroundResult { Text(result) }
-        Button("Show Activity Log") { NSWorkspace.shared.open(AppModel.logFile) }
+        Button("Show Activity Log") { NSWorkspace.shared.open(model.logFile) }
         Button("Check for Updates…") { Task { await model.checkForUpdates(userInitiated: true) } }
         Divider()
         Button("Open Reclaim") {

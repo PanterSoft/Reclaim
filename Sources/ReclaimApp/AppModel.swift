@@ -4,41 +4,33 @@ import IOKit.ps
 import ReclaimCore
 import ServiceManagement
 
-struct LogEntry: Identifiable, Hashable {
-    enum Level: String { case info, success, warning, error }
-    let id = UUID()
-    var date = Date()
-    let level: Level
-    let message: String
-}
-
 @MainActor
 final class AppModel: ObservableObject {
     // Saved so the background run uses the same settings after a restart.
-    @Published var locations: [URL] = (UserDefaults.standard.stringArray(forKey: "locations") ?? [NSHomeDirectory()]).map { URL(fileURLWithPath: $0) } {
-        didSet { UserDefaults.standard.set(locations.map(\.path), forKey: "locations") }
+    @Published var locations: [URL] {
+        didSet { defaults.set(locations.map(\.path), forKey: "locations") }
     }
-    @Published var includeAppBundles = UserDefaults.standard.bool(forKey: "includeAppBundles") {
-        didSet { UserDefaults.standard.set(includeAppBundles, forKey: "includeAppBundles") }
+    @Published var includeAppBundles: Bool {
+        didSet { defaults.set(includeAppBundles, forKey: "includeAppBundles") }
     }
-    @Published var minimumDuplicateSizeMB = UserDefaults.standard.object(forKey: "minimumDuplicateSizeMB") as? Double ?? 1.0 {
-        didSet { UserDefaults.standard.set(minimumDuplicateSizeMB, forKey: "minimumDuplicateSizeMB") }
+    @Published var minimumDuplicateSizeMB: Double {
+        didSet { defaults.set(minimumDuplicateSizeMB, forKey: "minimumDuplicateSizeMB") }
     }
-    @Published var minimumCompressionSizeKB = UserDefaults.standard.object(forKey: "minimumCompressionSizeKB") as? Double ?? 64.0 {
-        didSet { UserDefaults.standard.set(minimumCompressionSizeKB, forKey: "minimumCompressionSizeKB") }
+    @Published var minimumCompressionSizeKB: Double {
+        didSet { defaults.set(minimumCompressionSizeKB, forKey: "minimumCompressionSizeKB") }
     }
     /// Keep running in the menu bar, start at login and compress new files once a day.
-    @Published var runInBackground = UserDefaults.standard.bool(forKey: AppModel.runInBackgroundKey) {
+    @Published var runInBackground: Bool {
         didSet {
             guard runInBackground != oldValue else { return }
-            UserDefaults.standard.set(runInBackground, forKey: Self.runInBackgroundKey)
+            defaults.set(runInBackground, forKey: Self.runInBackgroundKey)
             updateLoginAgent()
         }
     }
-    @Published private(set) var lastBackgroundRun = UserDefaults.standard.object(forKey: "lastBackgroundRun") as? Date
-    @Published private(set) var lastBackgroundResult = UserDefaults.standard.string(forKey: "lastBackgroundResult")
-    @Published var checksForUpdates = UserDefaults.standard.object(forKey: "checksForUpdates") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(checksForUpdates, forKey: "checksForUpdates") }
+    @Published private(set) var lastBackgroundRun: Date?
+    @Published private(set) var lastBackgroundResult: String?
+    @Published var checksForUpdates: Bool {
+        didSet { defaults.set(checksForUpdates, forKey: "checksForUpdates") }
     }
     /// A newer release on GitHub, if there is one.
     @Published private(set) var availableUpdate: (version: String, page: URL)?
@@ -52,12 +44,23 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var busyTitle: String?
     @Published private(set) var progress: ProgressUpdate?
-    @Published private(set) var log: [LogEntry] = AppModel.loadLog()
+    @Published private(set) var log: [LogEntry]
 
     /// The Activity log, kept across launches so background runs can be reviewed later.
     // ponytail: grows without bound (a line per action, a few KB a month); trim it if that ever matters.
-    static let logFile = FileManager.default.homeDirectoryForCurrentUser
+    nonisolated static let defaultLogFile = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/Reclaim/activity.log")
+
+    // Seams for tests; the defaults are what the app uses.
+    let defaults: UserDefaults
+    let logFile: URL
+    /// The daily run only starts on power and outside Low Power Mode.
+    var canRunInBackground: () -> Bool = {
+        IOPSCopyExternalPowerAdapterDetails() != nil && !ProcessInfo.processInfo.isLowPowerModeEnabled
+    }
+    var fetch: @Sendable (URL) async throws -> (Data, URLResponse) = { try await URLSession.shared.data(from: $0) }
+    /// `swift run` has no Info.plist and so no version to compare.
+    var currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
 
     private var cancelCurrent: (() -> Void)?
     private var scheduler: Timer?
@@ -68,8 +71,21 @@ final class AppModel: ObservableObject {
 
     var isBusy: Bool { busyTitle != nil }
 
-    init() {
+    /// `automatic` starts the hourly background/update checks; tests turn it off.
+    init(defaults: UserDefaults = .standard, logFile: URL = AppModel.defaultLogFile, automatic: Bool = true) {
+        self.defaults = defaults
+        self.logFile = logFile
+        locations = (defaults.stringArray(forKey: "locations") ?? [NSHomeDirectory()]).map { URL(fileURLWithPath: $0) }
+        includeAppBundles = defaults.bool(forKey: "includeAppBundles")
+        minimumDuplicateSizeMB = defaults.object(forKey: "minimumDuplicateSizeMB") as? Double ?? 1.0
+        minimumCompressionSizeKB = defaults.object(forKey: "minimumCompressionSizeKB") as? Double ?? 64.0
+        runInBackground = defaults.bool(forKey: Self.runInBackgroundKey)
+        lastBackgroundRun = defaults.object(forKey: "lastBackgroundRun") as? Date
+        lastBackgroundResult = defaults.string(forKey: "lastBackgroundResult")
+        checksForUpdates = defaults.object(forKey: "checksForUpdates") as? Bool ?? true
+        log = (try? String(contentsOf: logFile, encoding: .utf8)).map { LogEntry.parse($0) } ?? []
         refreshVolume()
+        guard automatic else { return }
         // ponytail: hourly check for a daily run; FSEvents if new files should be picked up sooner.
         scheduler = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -83,7 +99,7 @@ final class AppModel: ObservableObject {
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                let stored = UserDefaults.standard.bool(forKey: Self.runInBackgroundKey)
+                let stored = self.defaults.bool(forKey: Self.runInBackgroundKey)
                 if stored != self.runInBackground { self.runInBackground = stored }
             }
         }
@@ -190,7 +206,7 @@ final class AppModel: ObservableObject {
     /// throttles for disk access.
     func compressNewFilesIfDue() {
         guard runInBackground, (lastBackgroundRun ?? .distantPast) < Date().addingTimeInterval(-24 * 60 * 60),
-              IOPSCopyExternalPowerAdapterDetails() != nil, !ProcessInfo.processInfo.isLowPowerModeEnabled
+              canRunInBackground()
         else { return }
         compressNewFiles()
     }
@@ -205,10 +221,10 @@ final class AppModel: ObservableObject {
             return TransparentCompression.compress(found, progress: progress)
         }, completion: { report in
             self.lastBackgroundRun = Date()
-            UserDefaults.standard.set(self.lastBackgroundRun, forKey: "lastBackgroundRun")
+            self.defaults.set(self.lastBackgroundRun, forKey: "lastBackgroundRun")
             self.candidates = nil
             self.lastBackgroundResult = self.recordOperation(report, verb: "Compressed")
-            UserDefaults.standard.set(self.lastBackgroundResult, forKey: "lastBackgroundResult")
+            self.defaults.set(self.lastBackgroundResult, forKey: "lastBackgroundResult")
         })
     }
 
@@ -231,7 +247,7 @@ final class AppModel: ObservableObject {
     private static let latestRelease = URL(string: "https://api.github.com/repos/PanterSoft/Reclaim/releases/latest")!
 
     func checkForUpdatesIfDue() async {
-        let last = UserDefaults.standard.object(forKey: "lastUpdateCheck") as? Date ?? .distantPast
+        let last = defaults.object(forKey: "lastUpdateCheck") as? Date ?? .distantPast
         guard checksForUpdates, last < Date().addingTimeInterval(-24 * 60 * 60) else { return }
         await checkForUpdates()
     }
@@ -240,14 +256,12 @@ final class AppModel: ObservableObject {
     /// `userInitiated` reports the outcome (including "up to date" and errors) in an alert.
     func checkForUpdates(userInitiated: Bool = false) async {
         struct Release: Decodable { let tag_name: String; let html_url: URL }
-        // `swift run` has no Info.plist and so no version to compare.
-        guard let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else { return }
+        guard let current = currentVersion else { return }
         do {
-            let (data, response) = try await URLSession.shared.data(from: Self.latestRelease)
-            UserDefaults.standard.set(Date(), forKey: "lastUpdateCheck")
+            let (data, response) = try await fetch(Self.latestRelease)
+            defaults.set(Date(), forKey: "lastUpdateCheck")
             let release = (response as? HTTPURLResponse)?.statusCode == 200 ? try JSONDecoder().decode(Release.self, from: data) : nil
-            let latest = release.map { String($0.tag_name.drop { $0 == "v" }) }
-            if let release, let latest, latest.compare(current, options: .numeric) == .orderedDescending {
+            if let release, let latest = UpdateCheck.newerVersion(latest: release.tag_name, current: current) {
                 availableUpdate = (latest, release.html_url)
                 if userInitiated { offerUpdate() }
             } else {
@@ -287,18 +301,8 @@ final class AppModel: ObservableObject {
         panel.message = "Choose files or folders to store uncompressed again."
         guard panel.runModal() == .OK else { return }
         let urls = panel.urls
-        perform("Decompressing files", work: { _ -> OperationReport in
-            var report = OperationReport()
-            try FileWalker.walk(urls, options: ScanOptions()) { path, st in
-                guard st.isCompressed else { return }
-                do {
-                    report.bytesReclaimed -= try TransparentCompression.decompress(path)
-                    report.succeeded += 1
-                } catch {
-                    report.failures.append(.init(path: path, reason: error.localizedDescription))
-                }
-            }
-            return report
+        perform("Decompressing files", work: { _ in
+            try TransparentCompression.decompress(urls)
         }, completion: { report in
             self.recordOperation(report, verb: "Decompressed")
         })
@@ -346,35 +350,22 @@ final class AppModel: ObservableObject {
     private func record(_ level: LogEntry.Level, _ message: String) {
         let entry = LogEntry(level: level, message: message)
         log.insert(entry, at: 0)
-        let line = "\(entry.date.ISO8601Format())\t\(level.rawValue)\t\(message.replacingOccurrences(of: "\n", with: " "))\n"
-        try? FileManager.default.createDirectory(at: Self.logFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let handle = try? FileHandle(forWritingTo: Self.logFile) {
+        let line = entry.line
+        try? FileManager.default.createDirectory(at: logFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let handle = try? FileHandle(forWritingTo: logFile) {
             _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: Data(line.utf8))
             try? handle.close()
         } else {
-            try? Data(line.utf8).write(to: Self.logFile)
-        }
-    }
-
-    /// The most recent 500 entries of the log file, newest first.
-    private static func loadLog() -> [LogEntry] {
-        guard let text = try? String(contentsOf: logFile, encoding: .utf8) else { return [] }
-        return text.split(separator: "\n").suffix(500).reversed().compactMap { line in
-            let fields = line.split(separator: "\t", maxSplits: 2).map(String.init)
-            guard fields.count == 3, let date = try? Date(fields[0], strategy: .iso8601),
-                  let level = LogEntry.Level(rawValue: fields[1]) else { return nil }
-            return LogEntry(date: date, level: level, message: fields[2])
+            try? Data(line.utf8).write(to: logFile)
         }
     }
 
     @discardableResult
     private func recordOperation(_ report: OperationReport, verb: String) -> String {
-        var message = "\(verb) \(report.succeeded) file(s)"
-        if report.bytesReclaimed > 0 { message += ", freeing about \(report.bytesReclaimed.formattedBytes)" }
-        if report.skipped > 0 { message += "; \(report.skipped) skipped (would not shrink enough)" }
-        record(report.failures.isEmpty ? .success : .warning, message + ".")
+        let message = report.summary(verb: verb)
+        record(report.failures.isEmpty ? .success : .warning, message)
         for failure in report.failures { record(.error, failure.reason) }
-        return message + "."
+        return message
     }
 }

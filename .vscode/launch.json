@@ -1,0 +1,44 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Reclaim}",
+            "name": "Debug reclaim",
+            "target": "reclaim",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug reclaim"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Reclaim}",
+            "name": "Release reclaim",
+            "target": "reclaim",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release reclaim"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Reclaim}",
+            "name": "Debug ReclaimApp",
+            "target": "ReclaimApp",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug ReclaimApp"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Reclaim}",
+            "name": "Release ReclaimApp",
+            "target": "ReclaimApp",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release ReclaimApp"
+        }
+    ]
+}
