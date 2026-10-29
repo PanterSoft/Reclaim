@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Reclaim</string>
+	<key>CFBundleDisplayName</key>
+	<string>Reclaim</string>
+	<key>CFBundleExecutable</key>
+	<string>Reclaim</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.reclaim.Reclaim</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__VERSION__</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Released under the MIT License.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Reclaim measures and optimizes the storage used by files in your Desktop folder.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Reclaim measures and optimizes the storage used by files in your Documents folder.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Reclaim measures and optimizes the storage used by files in your Downloads folder.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Reclaim measures and optimizes the storage used by files on external drives you choose.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Reclaim measures the storage used by files on network drives you choose.</string>
+</dict>
+</plist>
