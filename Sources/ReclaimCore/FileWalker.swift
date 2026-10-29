@@ -23,7 +23,7 @@ public struct ScanOptions: Sendable {
     /// Defaults used before modifying anything: skips ~/Library (app data, iCloud Drive,
     /// cloud storage providers), the Trash, system locations and app-managed libraries.
     public static func conservative(minimumFileSize: Int64, includeApplicationBundles: Bool = false) -> ScanOptions {
-        let home = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath().path
+        let home = FileWalker.canonical(FileManager.default.homeDirectoryForCurrentUser).path
         var packages = managedLibraryExtensions
         if !includeApplicationBundles { packages.insert("app") }
         return ScanOptions(
@@ -73,9 +73,19 @@ public enum FileWalker {
         }
     }
 
+    /// The real path of `url`, with every symlink resolved (e.g. /var/x → /private/var/x).
+    /// Unlike `URL.resolvingSymlinksInPath()`, this never strips a leading /private, so it
+    /// matches the paths the directory enumerator reports.
+    public static func canonical(_ url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        guard let resolved = realpath(standardized.path, nil) else { return standardized }
+        defer { free(resolved) }
+        return URL(fileURLWithPath: String(cString: resolved))
+    }
+
     /// Resolves symlinks and drops roots nested inside other roots so nothing is visited twice.
     static func normalized(_ roots: [URL]) -> [URL] {
-        let resolved = roots.map { $0.standardizedFileURL.resolvingSymlinksInPath() }
+        let resolved = roots.map(canonical)
         let paths = Set(resolved.map(\.path))
         var seen = Set<String>()
         return resolved.filter { url in

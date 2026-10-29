@@ -93,9 +93,12 @@ public enum TransparentCompression {
             try SafeReplace.copyMetadata(from: path, stat: expected, to: temporary, extendedAttributes: false)
         }, accept: { replacement in
             // ditto leaves a file uncompressed when compression would not help.
+            guard replacement.isCompressed else {
+                throw ReclaimError.notWorthCompressing(path, reason: "ditto did not compress it")
+            }
             saved = expected.allocatedSize - replacement.allocatedSize
-            guard replacement.isCompressed, Double(replacement.allocatedSize) <= Double(expected.allocatedSize) * 0.9 else {
-                throw ReclaimError.notWorthCompressing(path)
+            guard Double(replacement.allocatedSize) <= Double(expected.allocatedSize) * 0.9 else {
+                throw ReclaimError.notWorthCompressing(path, reason: "it would only shrink from \(expected.allocatedSize.formattedBytes) to \(replacement.allocatedSize.formattedBytes)")
             }
         })
         return saved
