@@ -19,10 +19,12 @@ BIN_DIR="$(swift build -c "$CONFIGURATION" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} -
 
 APP="dist/Reclaim.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Library/LaunchAgents"
 cp "$BIN_DIR/ReclaimApp" "$APP/Contents/MacOS/Reclaim"
 cp "$BIN_DIR/reclaim" "$APP/Contents/Resources/reclaim"
 sed "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
+# Login agent for "Run in the menu bar" (registered by the app via SMAppService).
+cp Resources/io.github.reclaim.Reclaim.background.plist "$APP/Contents/Library/LaunchAgents/"
 
 # Sign with the first local certificate if there is one: macOS ties a Full Disk Access grant for an
 # ad-hoc signed app to that exact build, so every rebuild would lose it. Falls back to ad-hoc (CI).

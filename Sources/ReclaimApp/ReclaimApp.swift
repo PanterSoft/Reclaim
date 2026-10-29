@@ -2,11 +2,32 @@ import AppKit
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var runInBackground: Bool { UserDefaults.standard.bool(forKey: AppModel.runInBackgroundKey) }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // One instance only: the login agent also starts one right when it is registered.
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            .filter { $0 != .current }
+        // Started by the login agent: menu bar only, no window, no Dock icon.
+        if CommandLine.arguments.contains("--background") {
+            guard others.isEmpty else { return NSApp.terminate(nil) }
+            NSApp.setActivationPolicy(.accessory)
+            DispatchQueue.main.async { NSApp.windows.filter(\.canBecomeMain).forEach { $0.close() } }
+            return
+        }
+        // A copy opened by hand replaces a background one (it takes over the menu bar icon).
+        others.forEach { $0.terminate() }
         // Also makes `swift run ReclaimApp` behave like a normal app.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         requestFullDiskAccessIfNeeded()
+        // Drop the Dock icon again once the last window closes while running in the background.
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard self?.runInBackground == true, !NSApp.windows.contains(where: { $0.canBecomeMain && $0.isVisible }) else { return }
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
     }
 
     /// macOS has no API to request Full Disk Access, so explain it and open the right pane.
@@ -32,16 +53,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !runInBackground }
+
+    /// Opening Reclaim from Finder or the Dock while it runs in the background shows the window again.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        NSApp.setActivationPolicy(.regular)
+        return true
+    }
 }
 
 @main
 struct ReclaimApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model = AppModel()
+    // Binding isInserted to the @StateObject stops the main window from opening at launch.
+    @AppStorage(AppModel.runInBackgroundKey) private var showsMenuBarExtra = false
 
     var body: some Scene {
-        WindowGroup("Reclaim") {
+        WindowGroup("Reclaim", id: "main") {
             ContentView()
                 .environmentObject(model)
                 .frame(minWidth: 920, minHeight: 620)
@@ -52,6 +81,36 @@ struct ReclaimApp: App {
             SettingsView()
                 .environmentObject(model)
         }
+
+        MenuBarExtra("Reclaim", systemImage: "arrow.down.right.and.arrow.up.left", isInserted: $showsMenuBarExtra) {
+            MenuBarMenu().environmentObject(model)
+        }
+    }
+}
+
+struct MenuBarMenu: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        if let volume = model.volume {
+            Text("\(volume.availableCapacity.formattedBytes) free on \(volume.name)")
+        }
+        if let title = model.busyTitle {
+            Text(model.progress?.summary ?? title + "…")
+            Button("Cancel") { model.cancel() }
+        } else {
+            Button("Compress New Files Now") { model.compressNewFiles() }
+        }
+        Text("Last run: " + (model.lastBackgroundRun?.formatted(.relative(presentation: .named)) ?? "never"))
+        Divider()
+        Button("Open Reclaim") {
+            NSApp.setActivationPolicy(.regular)
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        Button("Stop Running in Background") { model.runInBackground = false }
+        Button("Quit Reclaim") { NSApp.terminate(nil) }
     }
 }
 
@@ -146,6 +205,12 @@ struct SettingsView: View {
                 Stepper(value: $model.minimumCompressionSizeKB, in: 4...102_400, step: 16) {
                     Text("Ignore files smaller than \(Int(model.minimumCompressionSizeKB)) KB")
                 }
+            }
+            Section("Background") {
+                Toggle("Run in the menu bar and compress new files daily", isOn: $model.runInBackground)
+                Text("Reclaim starts at login and, once a day, compresses files in your locations that changed more than a day ago. Every file is verified before it is replaced.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Safety") {
                 Toggle("Include application bundles (.app)", isOn: $model.includeAppBundles)

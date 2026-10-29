@@ -79,6 +79,12 @@ Downloads.
 
 Settings (⌘,) control minimum file sizes and whether app bundles are included.
 
+**Background mode.** Turn on *Run in the menu bar and compress new files daily* in Settings.
+Reclaim then starts at login (menu bar only, no window) and, once a day, compresses files in
+your locations that have not changed for a day. It uses the same verify-then-swap path as a manual
+run. The menu bar icon shows free space and the last run, and has *Compress New Files Now*. macOS
+may ask you to allow Reclaim under **System Settings → General → Login Items**.
+
 ## Command line
 
 ```bash

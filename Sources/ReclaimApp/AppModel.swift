@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import ReclaimCore
+import ServiceManagement
 
 struct LogEntry: Identifiable, Hashable {
     enum Level { case info, success, warning, error }
@@ -12,10 +13,28 @@ struct LogEntry: Identifiable, Hashable {
 
 @MainActor
 final class AppModel: ObservableObject {
-    @Published var locations: [URL] = [FileManager.default.homeDirectoryForCurrentUser]
-    @Published var includeAppBundles = false
-    @Published var minimumDuplicateSizeMB = 1.0
-    @Published var minimumCompressionSizeKB = 64.0
+    // Saved so the background run uses the same settings after a restart.
+    @Published var locations: [URL] = (UserDefaults.standard.stringArray(forKey: "locations") ?? [NSHomeDirectory()]).map { URL(fileURLWithPath: $0) } {
+        didSet { UserDefaults.standard.set(locations.map(\.path), forKey: "locations") }
+    }
+    @Published var includeAppBundles = UserDefaults.standard.bool(forKey: "includeAppBundles") {
+        didSet { UserDefaults.standard.set(includeAppBundles, forKey: "includeAppBundles") }
+    }
+    @Published var minimumDuplicateSizeMB = UserDefaults.standard.object(forKey: "minimumDuplicateSizeMB") as? Double ?? 1.0 {
+        didSet { UserDefaults.standard.set(minimumDuplicateSizeMB, forKey: "minimumDuplicateSizeMB") }
+    }
+    @Published var minimumCompressionSizeKB = UserDefaults.standard.object(forKey: "minimumCompressionSizeKB") as? Double ?? 64.0 {
+        didSet { UserDefaults.standard.set(minimumCompressionSizeKB, forKey: "minimumCompressionSizeKB") }
+    }
+    /// Keep running in the menu bar, start at login and compress new files once a day.
+    @Published var runInBackground = UserDefaults.standard.bool(forKey: AppModel.runInBackgroundKey) {
+        didSet {
+            guard runInBackground != oldValue else { return }
+            UserDefaults.standard.set(runInBackground, forKey: Self.runInBackgroundKey)
+            updateLoginAgent()
+        }
+    }
+    @Published private(set) var lastBackgroundRun = UserDefaults.standard.object(forKey: "lastBackgroundRun") as? Date
 
     @Published private(set) var volume: VolumeInfo?
     @Published private(set) var report: StorageReport?
@@ -29,10 +48,30 @@ final class AppModel: ObservableObject {
     @Published private(set) var log: [LogEntry] = []
 
     private var cancelCurrent: (() -> Void)?
+    private var scheduler: Timer?
+
+    nonisolated static let runInBackgroundKey = "runInBackground"
+    /// Starts `Reclaim --background` at login; the plist ships in Contents/Library/LaunchAgents.
+    private static let loginAgent = SMAppService.agent(plistName: "io.github.reclaim.Reclaim.background.plist")
 
     var isBusy: Bool { busyTitle != nil }
 
-    init() { refreshVolume() }
+    init() {
+        refreshVolume()
+        // ponytail: hourly check for a daily run; FSEvents if new files should be picked up sooner.
+        scheduler = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.compressNewFilesIfDue() }
+        }
+        compressNewFilesIfDue()
+        // Removing the menu bar icon (⌘-drag) writes the setting directly; follow it.
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let stored = UserDefaults.standard.bool(forKey: Self.runInBackgroundKey)
+                if stored != self.runInBackground { self.runInBackground = stored }
+            }
+        }
+    }
 
     // MARK: Locations
 
@@ -128,6 +167,43 @@ final class AppModel: ObservableObject {
         })
     }
 
+    // MARK: Background
+
+    func compressNewFilesIfDue() {
+        guard runInBackground, (lastBackgroundRun ?? .distantPast) < Date().addingTimeInterval(-24 * 60 * 60) else { return }
+        compressNewFiles()
+    }
+
+    /// Finds and compresses everything worth compressing, without a review step. Files changed in
+    /// the last day are skipped by `findCandidates`, so repeat runs only pick up settled new files.
+    func compressNewFiles() {
+        let roots = locations
+        let options = scanOptions(minimumFileSize: Int64(minimumCompressionSizeKB * 1024))
+        perform("Compressing new files", priority: .background, work: { progress in
+            let found = try TransparentCompression.findCandidates(in: roots, options: options, progress: progress)
+            return TransparentCompression.compress(found, progress: progress)
+        }, completion: { report in
+            self.lastBackgroundRun = Date()
+            UserDefaults.standard.set(self.lastBackgroundRun, forKey: "lastBackgroundRun")
+            self.candidates = nil
+            self.recordOperation(report, verb: "Compressed")
+        })
+    }
+
+    private func updateLoginAgent() {
+        do {
+            if runInBackground {
+                try Self.loginAgent.register()
+                if Self.loginAgent.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
+                compressNewFilesIfDue()
+            } else {
+                try Self.loginAgent.unregister()
+            }
+        } catch {
+            record(.error, "Could not update the login item: \(error.localizedDescription)")
+        }
+    }
+
     func decompressFiles() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -164,6 +240,7 @@ final class AppModel: ObservableObject {
 
     private func perform<T: Sendable>(
         _ title: String,
+        priority: TaskPriority = .userInitiated,
         work: @escaping @Sendable (@escaping ProgressHandler) throws -> T,
         completion: @escaping @MainActor (T) -> Void
     ) {
@@ -173,7 +250,7 @@ final class AppModel: ObservableObject {
         let handler: ProgressHandler = { [weak self] update in
             Task { @MainActor in self?.progress = update }
         }
-        let worker = Task.detached(priority: .userInitiated) { try work(handler) }
+        let worker = Task.detached(priority: priority) { try work(handler) }
         cancelCurrent = { worker.cancel() }
         Task {
             let result = await worker.result
