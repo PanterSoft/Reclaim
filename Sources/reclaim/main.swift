@@ -97,7 +97,7 @@ func run(_ invocation: Invocation) throws {
         for entry in report.largestFiles.prefix(15) { print(column(entry.bytes.formattedBytes, 12) + "  " + entry.path) }
 
     case "duplicates":
-        let groups = try DuplicateFinder.findDuplicates(in: roots, options: options, progress: progressPrinter)
+        let groups = try DuplicateFinder.findDuplicates(in: roots, options: options, cache: ScanCache(), progress: progressPrinter)
         clearProgress()
         let total = groups.reduce(0) { $0 + $1.reclaimableBytes }
         guard !groups.isEmpty else { print("No duplicate files found that could share storage."); return }
@@ -112,7 +112,7 @@ func run(_ invocation: Invocation) throws {
         printReport(CloneDeduplicator.deduplicate(groups, progress: progressPrinter), verb: "Cloned")
 
     case "compress":
-        let candidates = try TransparentCompression.findCandidates(in: roots, options: options, progress: progressPrinter)
+        let candidates = try TransparentCompression.findCandidates(in: roots, options: options, cache: ScanCache(), progress: progressPrinter)
         clearProgress()
         guard !candidates.isEmpty else { print("No files found that would benefit from compression."); return }
         let total = candidates.reduce(0) { $0 + $1.estimatedSavings }

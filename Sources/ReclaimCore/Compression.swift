@@ -37,8 +37,10 @@ public enum TransparentCompression {
         options: ScanOptions,
         maximumRatio: Double = 0.8,
         minimumAge: TimeInterval = 24 * 60 * 60,
+        cache: ScanCache? = nil,
         progress: ProgressHandler? = nil
     ) throws -> [CompressionCandidate] {
+        defer { cache?.save() }
         var candidates: [CompressionCandidate] = []
         var supportsCompression: [Int32: Bool] = [:]
         let cutoff = Date().addingTimeInterval(-minimumAge)
@@ -57,8 +59,14 @@ public enum TransparentCompression {
                 supportsCompression[st.device] = values?.volumeSupportsCompression ?? false
             }
             guard supportsCompression[st.device] == true else { return }
-            guard !ExtendedAttributes.exists(ExtendedAttributes.resourceFork, on: path) else { return }
-            let ratio = estimateRatio(path: path, size: st.size)
+            let ratio: Double
+            if let cached = cache?.entry(path, st)?.ratio {
+                ratio = cached
+            } else {
+                guard !ExtendedAttributes.exists(ExtendedAttributes.resourceFork, on: path) else { return }
+                ratio = estimateRatio(path: path, size: st.size)
+                cache?.update(path, st) { $0.ratio = ratio }
+            }
             if ratio <= maximumRatio {
                 candidates.append(CompressionCandidate(path: path, stat: st, estimatedRatio: ratio))
             }

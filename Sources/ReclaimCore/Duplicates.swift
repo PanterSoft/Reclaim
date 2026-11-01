@@ -64,7 +64,8 @@ public enum DuplicateFinder {
     ///
     /// Files are grouped by volume and size, then by a hash of their first 64 KiB, and
     /// finally by a SHA-256 of their full contents.
-    public static func findDuplicates(in roots: [URL], options: ScanOptions, progress: ProgressHandler? = nil) throws -> [DuplicateGroup] {
+    public static func findDuplicates(in roots: [URL], options: ScanOptions, cache: ScanCache? = nil, progress: ProgressHandler? = nil) throws -> [DuplicateGroup] {
+        defer { cache?.save() }
         struct SizeKey: Hashable { let device: Int32; let size: Int64 }
         var bySize: [SizeKey: [(path: String, stat: FileStat)]] = [:]
         var cloningSupport: [Int32: Bool] = [:]
@@ -97,7 +98,7 @@ public enum DuplicateFinder {
                 if throttle.ready() {
                     progress?(ProgressUpdate(phase: "Comparing contents", completed: compared, total: total, detail: entry.path))
                 }
-                guard let hash = try? ContentHash.sha256(ofFileAt: entry.path, maxBytes: prefixLength) else { continue }
+                guard let hash = try? cacheOrHash(cache, entry.path, entry.stat, prefix: prefixLength) else { continue }
                 byPrefix[hash, default: []].append(entry)
             }
 
@@ -116,7 +117,7 @@ public enum DuplicateFinder {
                     if file.stat.size <= prefixLength {
                         hash = prefixHash
                     } else {
-                        hash = try? ContentHash.sha256(ofFileAt: file.path)
+                        hash = try? cacheOrHash(cache, file.path, file.stat)
                     }
                     guard let hash else { continue }
                     byContent[hash, default: []].append(file)
@@ -128,6 +129,10 @@ public enum DuplicateFinder {
         }
         return groups.sorted { $0.reclaimableBytes > $1.reclaimableBytes }
     }
+}
+
+private func cacheOrHash(_ cache: ScanCache?, _ path: String, _ st: FileStat, prefix: Int64? = nil) throws -> String {
+    try cache?.hash(path, st, prefix: prefix) ?? ContentHash.sha256(ofFileAt: path, maxBytes: prefix)
 }
 
 public enum CloneDeduplicator {

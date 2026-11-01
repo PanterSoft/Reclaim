@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct ScanOptions: Sendable {
@@ -57,25 +58,31 @@ public enum FileWalker {
             let devices = bootDevices.contains(rootStat.device) ? bootDevices : [rootStat.device]
             // An explicitly chosen folder wins over the exclusions that contain it.
             let excluded = options.excludedPaths.filter { !(rootPath == $0 || rootPath.hasPrefix($0 + "/")) }
-            guard let enumerator = FileManager.default.enumerator(
-                at: root, includingPropertiesForKeys: nil, options: [], errorHandler: { _, _ in true }
-            ) else { continue }
+            // fts hands back each entry's lstat result, so no file is stat'ed twice.
+            var rootCString = Array(rootPath.utf8CString)
+            let handle: UnsafeMutablePointer<FTS>? = rootCString.withUnsafeMutableBufferPointer { buffer in
+                var argv: [UnsafeMutablePointer<CChar>?] = [buffer.baseAddress, nil]
+                return fts_open(&argv, FTS_PHYSICAL | FTS_NOCHDIR, nil)
+            }
+            guard let handle else { continue }
+            defer { fts_close(handle) }
 
-            while let url = enumerator.nextObject() as? URL {
+            while let entry = fts_read(handle)?.pointee {
                 visited += 1
                 if visited % 512 == 0 { try Task.checkCancellation() }
-                let path = url.path
-                guard let st = FileStat.of(path) else { continue }
+                guard entry.fts_level > 0, Int32(entry.fts_info) != FTS_DP, let statp = entry.fts_statp else { continue }
+                let path = String(cString: entry.fts_path)
+                let st = FileStat(statp.pointee)
                 if st.isDirectory {
                     // Stay on the root's volume (network shares, device mounts can block), and don't
                     // list cloud-only folders: that makes iCloud/Drive/Nextcloud download the listing.
                     if !devices.contains(st.device) || st.isDataless || excluded.contains(path)
-                        || options.excludedPackageExtensions.contains(url.pathExtension.lowercased()) {
-                        enumerator.skipDescendants()
+                        || options.excludedPackageExtensions.contains((path as NSString).pathExtension.lowercased()) {
+                        fts_set(handle, UnsafeMutablePointer(mutating: handle.pointee.fts_cur), FTS_SKIP)
                     }
                     continue
                 }
-                guard st.isRegularFile, !SafeReplace.isTemporaryFile(url.lastPathComponent) else { continue }
+                guard st.isRegularFile, !SafeReplace.isTemporaryFile((path as NSString).lastPathComponent) else { continue }
                 try visit(path, st)
             }
         }

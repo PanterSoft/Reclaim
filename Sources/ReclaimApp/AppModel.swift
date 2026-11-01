@@ -153,7 +153,7 @@ final class AppModel: ObservableObject {
         let roots = locations
         let options = scanOptions(minimumFileSize: Int64(minimumDuplicateSizeMB * 1_048_576))
         perform("Finding duplicates", work: { progress in
-            try DuplicateFinder.findDuplicates(in: roots, options: options, progress: progress)
+            try DuplicateFinder.findDuplicates(in: roots, options: options, cache: ScanCache(), progress: progress)
         }, completion: { groups in
             self.duplicateGroups = groups
             self.selectedGroups = Set(groups.map(\.id))
@@ -178,7 +178,7 @@ final class AppModel: ObservableObject {
         let roots = locations
         let options = scanOptions(minimumFileSize: Int64(minimumCompressionSizeKB * 1024))
         perform("Finding compressible files", work: { progress in
-            try TransparentCompression.findCandidates(in: roots, options: options, progress: progress)
+            try TransparentCompression.findCandidates(in: roots, options: options, cache: ScanCache(), progress: progress)
         }, completion: { candidates in
             self.candidates = candidates
             self.selectedCandidates = Set(candidates.map(\.id))
@@ -217,7 +217,7 @@ final class AppModel: ObservableObject {
         let roots = locations
         let options = scanOptions(minimumFileSize: Int64(minimumCompressionSizeKB * 1024))
         perform("Compressing new files", priority: .background, work: { progress in
-            let found = try TransparentCompression.findCandidates(in: roots, options: options, progress: progress)
+            let found = try TransparentCompression.findCandidates(in: roots, options: options, cache: ScanCache(), progress: progress)
             return TransparentCompression.compress(found, progress: progress)
         }, completion: { report in
             self.lastBackgroundRun = Date()

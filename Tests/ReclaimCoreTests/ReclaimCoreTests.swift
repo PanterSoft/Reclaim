@@ -16,6 +16,19 @@ final class ReclaimCoreTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    func testScanCacheReusesUnchangedFilesOnly() throws {
+        let file = try write("a.txt", compressibleData(20_000), age: 3 * 86_400)
+        let cacheURL = directory.appendingPathComponent("cache.json")
+        let st = try XCTUnwrap(FileStat.of(file.path))
+        let cache = ScanCache(url: cacheURL)
+        cache.update(file.path, st) { $0.ratio = 0.123 }
+        cache.save()
+
+        XCTAssertEqual(ScanCache(url: cacheURL).entry(file.path, st)?.ratio, 0.123)
+        try write("a.txt", compressibleData(20_001), age: 3 * 86_400)
+        XCTAssertNil(ScanCache(url: cacheURL).entry(file.path, try XCTUnwrap(FileStat.of(file.path))))
+    }
+
     @discardableResult
     private func write(_ name: String, _ data: Data, age: TimeInterval = 0) throws -> URL {
         let url = directory.appendingPathComponent(name)
