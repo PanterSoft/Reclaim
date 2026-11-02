@@ -19,6 +19,11 @@ enum SafeReplace {
         return (directory as NSString).appendingPathComponent(prefix + UUID().uuidString + suffix)
     }
 
+    /// The temporary copy lives beside the original, so a read-only folder (e.g. Go's module cache) rules the file out.
+    static func canReplace(_ path: String) -> Bool {
+        access((path as NSString).deletingLastPathComponent, W_OK) == 0
+    }
+
     static func isTemporaryFile(_ name: String) -> Bool {
         name.hasPrefix(prefix) && name.hasSuffix(suffix)
     }

@@ -52,6 +52,7 @@ public enum TransparentCompression {
             if throttle.ready() { progress?(ProgressUpdate(phase: "Sampling files", completed: seen, detail: path)) }
             guard st.size >= max(options.minimumFileSize, 4096), st.size <= maximumFileSize,
                   st.isSafeToRewrite, !st.isCompressed, st.modificationTime.date < cutoff,
+                  SafeReplace.canReplace(path),
                   !incompressibleExtensions.contains((path as NSString).pathExtension.lowercased())
             else { return }
             if supportsCompression[st.device] == nil {

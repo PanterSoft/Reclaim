@@ -102,7 +102,8 @@ struct MenuBarMenu: View {
             Text("\(volume.availableCapacity.formattedBytes) free on \(volume.name)")
         }
         if let title = model.busyTitle {
-            Text(model.progress?.summary ?? title + "…")
+            // Static text: a menu rebuilt ~10x/s by live progress hangs while it is open.
+            Text(title + "…")
             Button("Cancel") { model.cancel() }
         } else {
             Button("Compress New Files Now") { model.compressNewFiles() }

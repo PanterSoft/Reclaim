@@ -75,7 +75,8 @@ public enum DuplicateFinder {
         try FileWalker.walk(roots, options: options) { path, st in
             seen += 1
             if throttle.ready() { progress?(ProgressUpdate(phase: "Looking for files", completed: seen, detail: path)) }
-            guard st.size >= max(options.minimumFileSize, 1), st.isSafeToRewrite else { return }
+            guard st.size >= max(options.minimumFileSize, 1), st.isSafeToRewrite,
+                  SafeReplace.canReplace(path) else { return }
             if cloningSupport[st.device] == nil {
                 let values = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.volumeSupportsFileCloningKey])
                 cloningSupport[st.device] = values?.volumeSupportsFileCloning ?? false
