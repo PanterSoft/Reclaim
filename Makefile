@@ -50,17 +50,17 @@ xcode: ## Open the package in Xcode
 app: ## Build a release Reclaim.app and a zip of it in dist/
 	VERSION=$(VERSION) ./scripts/build-app.sh
 
-publish: ## Tag, build a universal app, create the GitHub release and update the cask, e.g. make publish VERSION=0.2.0
+publish: ## Tag, build a universal app, create the GitHub release and update the tap, e.g. make publish VERSION=0.2.0
 	@[ "$(origin VERSION)" = "command line" ] || { echo "Usage: make publish VERSION=x.y.z"; exit 1; }
 	@[ -z "$$(git status --porcelain)" ] || { echo "Commit or stash your changes first."; exit 1; }
 	git rev-parse -q --verify "refs/tags/v$(V)" >/dev/null || git tag "v$(V)"
 	git push origin "v$(V)"
 	UNIVERSAL=1 VERSION=$(V) ./scripts/build-app.sh
 	gh release create "v$(V)" "dist/$(APP_NAME)-$(V).zip" --title "$(APP_NAME) $(V)" --generate-notes
+	rm -rf dist/tap && gh repo clone PanterSoft/homebrew-reclaim dist/tap -- -q
 	sed -i '' -e 's/^  version ".*"/  version "$(V)"/' \
-	  -e "s/^  sha256 \".*\"/  sha256 \"$$(shasum -a 256 dist/$(APP_NAME)-$(V).zip | cut -d' ' -f1)\"/" Casks/reclaim.rb
-	git commit -m "Update Homebrew cask to $(V)" Casks/reclaim.rb
-	git push origin HEAD
+	  -e "s/^  sha256 \".*\"/  sha256 \"$$(shasum -a 256 dist/$(APP_NAME)-$(V).zip | cut -d' ' -f1)\"/" dist/tap/Casks/reclaim.rb
+	git -C dist/tap commit -qam "Update to $(V)" && git -C dist/tap push -q origin HEAD
 
 install: app ## Install Reclaim.app into APP_DIR and the `reclaim` command into BIN_DIR
 	@pkill -x $(APP_NAME) 2>/dev/null || true

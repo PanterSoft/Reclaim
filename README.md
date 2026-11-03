@@ -30,8 +30,7 @@ Changed files get a new inode, so backups copy them once more. Clones only work 
 ## Install
 
 ```bash
-brew tap pantersoft/reclaim https://github.com/PanterSoft/Reclaim
-brew install --cask reclaim   # app + `reclaim` CLI
+brew install --cask pantersoft/reclaim/reclaim   # app + `reclaim` CLI
 ```
 
 Or download `Reclaim-x.y.z.zip` from [Releases](../../releases), unzip and move `Reclaim.app` to **Applications**.
