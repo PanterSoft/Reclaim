@@ -1,7 +1,7 @@
 # version and sha256 are updated by `make publish`.
 cask "reclaim" do
-  version "0.1.0"
-  sha256 "b68177201c692e37a738f9bc30584be7368363b7320f1c88c19a8a6b23bdbaff"
+  version "0.1.1"
+  sha256 "34659fc0cf7ef0cb598c2ec39c37aaf64ac35705d907a955a087fcea85eef912"
 
   url "https://github.com/PanterSoft/Reclaim/releases/download/v#{version}/Reclaim-#{version}.zip"
   name "Reclaim"
