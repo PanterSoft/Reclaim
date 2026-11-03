@@ -51,7 +51,7 @@ Grant **Full Disk Access** when asked (System Settings → Privacy & Security).
 Pick folders in **Overview**, then review **Storage**, **Duplicates** and **Compression**.
 Every action is logged under **Activity** and in `~/Library/Logs/Reclaim/activity.log`.
 
-Optional **background mode** (Settings) runs from the menu bar and compresses unchanged files once a day, on power only.
+Optional **background mode** (Settings) runs from the menu bar and compresses unchanged files once a day, on power only unless you enable "Also run on battery power". Manual scans and compression always work.
 
 ```bash
 reclaim analyze ~                      # what is using space

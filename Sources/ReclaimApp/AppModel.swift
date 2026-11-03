@@ -29,6 +29,10 @@ final class AppModel: ObservableObject {
     }
     @Published private(set) var lastBackgroundRun: Date?
     @Published private(set) var lastBackgroundResult: String?
+    /// Let the daily run start on battery too. Manual scans and compression never check power.
+    @Published var runOnBattery: Bool {
+        didSet { defaults.set(runOnBattery, forKey: "runOnBattery") }
+    }
     @Published var checksForUpdates: Bool {
         didSet { defaults.set(checksForUpdates, forKey: "checksForUpdates") }
     }
@@ -54,10 +58,10 @@ final class AppModel: ObservableObject {
     // Seams for tests; the defaults are what the app uses.
     let defaults: UserDefaults
     let logFile: URL
-    /// The daily run only starts on power and outside Low Power Mode.
-    var canRunInBackground: () -> Bool = {
-        IOPSCopyExternalPowerAdapterDetails() != nil && !ProcessInfo.processInfo.isLowPowerModeEnabled
-    }
+    var onExternalPower: () -> Bool = { IOPSCopyExternalPowerAdapterDetails() != nil }
+    var lowPowerMode: () -> Bool = { ProcessInfo.processInfo.isLowPowerModeEnabled }
+    /// The daily run starts on power (or on battery if allowed), but never in Low Power Mode.
+    var canRunInBackground: Bool { (runOnBattery || onExternalPower()) && !lowPowerMode() }
     var fetch: @Sendable (URL) async throws -> (Data, URLResponse) = { try await URLSession.shared.data(from: $0) }
     /// `swift run` has no Info.plist and so no version to compare.
     var currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -82,6 +86,7 @@ final class AppModel: ObservableObject {
         runInBackground = defaults.bool(forKey: Self.runInBackgroundKey)
         lastBackgroundRun = defaults.object(forKey: "lastBackgroundRun") as? Date
         lastBackgroundResult = defaults.string(forKey: "lastBackgroundResult")
+        runOnBattery = defaults.bool(forKey: "runOnBattery")
         checksForUpdates = defaults.object(forKey: "checksForUpdates") as? Bool ?? true
         log = (try? String(contentsOf: logFile, encoding: .utf8)).map { LogEntry.parse($0) } ?? []
         refreshVolume()
@@ -201,12 +206,12 @@ final class AppModel: ObservableObject {
 
     // MARK: Background
 
-    /// Runs the daily compression, but only on power and outside Low Power Mode; the hourly
+    /// Runs the daily compression, but only on power (unless allowed on battery) and outside Low Power Mode; the hourly
     /// check retries until both hold. The work runs at background priority, which macOS also
     /// throttles for disk access.
     func compressNewFilesIfDue() {
         guard runInBackground, (lastBackgroundRun ?? .distantPast) < Date().addingTimeInterval(-24 * 60 * 60),
-              canRunInBackground()
+              canRunInBackground
         else { return }
         compressNewFiles()
     }

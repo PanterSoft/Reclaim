@@ -31,7 +31,8 @@ final class ReclaimAppTests: XCTestCase {
         let model = AppModel(defaults: defaults, logFile: logFile, automatic: false)
         model.minimumDuplicateSizeMB = 0.5
         model.minimumCompressionSizeKB = 4
-        model.canRunInBackground = { true }
+        model.onExternalPower = { true }
+        model.lowPowerMode = { false }
         model.currentVersion = "1.0.0"
         return model
     }
@@ -211,11 +212,18 @@ final class ReclaimAppTests: XCTestCase {
         defaults.set(true, forKey: AppModel.runInBackgroundKey) // set before launch, so no login item is registered
         let model = makeModel()
 
-        model.canRunInBackground = { false } // on battery
+        model.onExternalPower = { false } // on battery
         model.compressNewFilesIfDue()
         XCTAssertFalse(model.isBusy)
 
-        model.canRunInBackground = { true }
+        model.runOnBattery = true // opted in, but not in Low Power Mode
+        model.lowPowerMode = { true }
+        model.compressNewFilesIfDue()
+        XCTAssertFalse(model.isBusy)
+        model.lowPowerMode = { false }
+        model.runOnBattery = false
+
+        model.onExternalPower = { true }
         model.compressNewFilesIfDue()
         try await idle(model)
         XCTAssertTrue(try XCTUnwrap(FileStat.of(file.path)).isCompressed)

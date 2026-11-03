@@ -226,6 +226,8 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("Updates") {
+                Toggle("Also run on battery power", isOn: $model.runOnBattery)
+                    .disabled(!model.runInBackground)
                 Toggle("Check GitHub for new versions daily", isOn: $model.checksForUpdates)
             }
             Section("Safety") {
